@@ -1,0 +1,17 @@
+{
+ "version": 1,
+ "updated_at": "2026-07-05T11:14:20.175935+00:00",
+ "run": {
+  "desired": "running",
+  "start_requested_at": null
+ },
+ "lanes": {
+  "intake": "running",
+  "spapi": "running",
+  "gemini": "running",
+  "aliexpress": "running",
+  "local": "running",
+  "publisher": "running"
+ },
+ "orders": []
+}
