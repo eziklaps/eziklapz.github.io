@@ -24,7 +24,8 @@ function productCard(p) {
     el("tr", {}, el("th", {}, "Price"), el("td", {}, fmtR(p.amazon_price)),
        el("td", {}, fmtR(p.sku_price ?? p.ali_price_used))),
     el("tr", {}, el("th", {}, "Buy Box"), el("td", {}, fmtR(p.amazon_buybox_price)),
-       el("td", {}, p.ali_price_source === "sku" ? "SKU price" : "search price")),
+       el("td", {}, p.ali_price_source === "sku" ? "SKU price"
+          : p.ali_price_source ? "search price" : "—")),
     el("tr", {}, el("th", {}, "Offers"), el("td", {}, fmtNum(p.amazon_total_offers)),
        el("td", {}, "")),
     el("tr", {}, el("th", {}, "Rank"),
