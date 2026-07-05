@@ -39,6 +39,10 @@ function render(data) {
     (data.run_id ? ` · run ${data.run_id}` : "") +
     ` · published ${fmtAgo(data.generated_at)}`;
 
+  // --- AliExpress credential health ---
+  const authBanner = authWarning(data.aliexpress_auth);
+  if (authBanner) root.append(authBanner);
+
   // --- stat tiles ---
   const counts = data.status_counts || {};
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -153,6 +157,31 @@ function render(data) {
     }
     root.append(panel("Recent lane errors", el("div", { class: "scroll-x" }, list)));
   }
+}
+
+/* AliExpress credential banner: warns when the tokens are expired/expiring
+   (published by funnel/metrics.py, env-only). The button opens the AliExpress
+   sign-in; the token exchange itself needs the app secret, which only lives
+   on the pipeline machine — hence the runtime.py hint. */
+function authWarning(auth) {
+  if (!auth || !["expired", "expiring", "missing"].includes(auth.status)) return null;
+  const critical = auth.status !== "expiring";
+  const text = {
+    expired: "AliExpress tokens have expired — intake, SKU matching and freight are stalled.",
+    missing: "AliExpress tokens are missing from .env — nothing can be pulled from AliExpress.",
+    expiring: `AliExpress refresh token expires ${fmtIn(auth.refresh_expires_at)} — re-authorize before it dies.`,
+  }[auth.status];
+  return el("div", {
+    class: "banner show",
+    style: critical ? "border-left-color: var(--critical)" : "",
+  },
+    `${critical ? "⛔" : "⚠"} ${text} `,
+    "Run ", el("code", {}, "python runtime.py auth"),
+    " on the pipeline machine (it opens this sign-in and saves fresh tokens): ",
+    el("a", {
+      class: "btn", href: auth.authorize_url, target: "_blank",
+      rel: "noreferrer", style: "text-decoration:none;margin-left:6px",
+    }, "Re-authenticate AliExpress"));
 }
 
 /* Remote control: pause/resume lanes, stop/start the run — every action is
