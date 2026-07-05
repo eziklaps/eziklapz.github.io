@@ -50,6 +50,14 @@ function render(data) {
     tile("Backlog", fmtNum(Object.values(data.feed_depths || {}).reduce((a, b) => a + b, 0)),
          "docs awaiting a stage"),
   );
+  if (data.work_eta_seconds > 0) {
+    tiles.append(tile("Paced work left", `~${fmtDur(data.work_eta_seconds)}`,
+                      "SP-API + AliExpress pacing; Gemini batches excluded"));
+  }
+  if (data.budget && data.budget.deadline_at) {
+    tiles.append(tile("Time budget", fmtDur((data.budget.minutes || 0) * 60),
+                      `ends ${fmtIn(data.budget.deadline_at)}`));
+  }
   root.append(tiles);
 
   // --- lanes ---
@@ -210,13 +218,36 @@ function controlsPanel(data) {
       }, "Resume"))));
   }
 
+  // Duration picker for Start run: budget_minutes rides along on the
+  // command; the run sizes its keyword claim to it and flush-exits at the
+  // deadline (in-flight Gemini jobs are collected by the next run).
+  const budgetSelect = el("select", {
+    style: "padding:8px 10px;margin-right:8px;" +
+           "border:1px solid var(--hairline);border-radius:8px;" +
+           "background:var(--surface);color:var(--ink);",
+  },
+    el("option", { value: "" }, "Until done"),
+    el("option", { value: "60" }, "1 hour"),
+    el("option", { value: "180" }, "3 hours"),
+    el("option", { value: "360" }, "6 hours"),
+    el("option", { value: "720" }, "12 hours"),
+    el("option", { value: "1440" }, "24 hours"));
+
   body.append(
     el("div", {},
+      budgetSelect,
       el("button", {
-        class: "btn", onclick: () => act("start run", (doc) => {
-          doc.run = { desired: "running",
-                      start_requested_at: new Date().toISOString() };
-        }),
+        class: "btn", onclick: () => {
+          const minutes = budgetSelect.value ? Number(budgetSelect.value) : null;
+          const label = minutes
+            ? `start run (${budgetSelect.selectedOptions[0].textContent})`
+            : "start run";
+          act(label, (doc) => {
+            doc.run = { desired: "running",
+                        start_requested_at: new Date().toISOString(),
+                        budget_minutes: minutes };
+          });
+        },
       }, "Start run"),
       " ",
       el("button", {
@@ -232,6 +263,18 @@ function controlsPanel(data) {
     el("div", { class: "scroll-x", style: "margin-top:10px" }, table),
     status);
   return panel("Remote control", body);
+}
+
+function fmtDur(seconds) {
+  const min = Math.round(seconds / 60);
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  return min % 60 ? `${h}h ${min % 60}m` : `${h}h`;
+}
+
+function fmtIn(iso) {
+  const min = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
+  return min <= 0 ? "now (winding down)" : `in ${fmtDur(min * 60)}`;
 }
 
 function tile(label, value, hint) {
