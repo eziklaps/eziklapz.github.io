@@ -166,6 +166,33 @@ table.data td.t { font-variant-numeric: normal; }
 .product .links { display: flex; gap: 12px; font-size: 13px; margin-top: auto; }
 .order { width: 100%; }
 
+/* history sparklines: series line in the de-emphasis hue, current segment +
+   surface-ringed end-dot in the accent; values wear text tokens, direction
+   is carried by the ▲/▼ glyph (color is secondary). */
+.trend { display: flex; flex-direction: column; gap: 4px; }
+.trend .row {
+  display: grid; grid-template-columns: 40px 96px 1fr;
+  gap: 8px; align-items: center; font-size: 12px;
+}
+.trend .tlabel { color: var(--muted); }
+.trend .tval { color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; }
+.trend .tval.up { color: var(--good-text); }
+.trend .tval.down { color: var(--serious); }
+.spark { display: block; }
+.spark-base {
+  fill: none; stroke: var(--muted); stroke-width: 2; opacity: 0.55;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.spark-now { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
+.spark-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+
+/* ledger event chips (icon + words, never color alone) */
+.flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.flagchip {
+  font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--hairline); color: var(--ink-2); white-space: nowrap;
+}
+
 /* order modal */
 dialog.order-modal {
   border: 1px solid var(--ring); border-radius: 12px; padding: 20px 22px;
