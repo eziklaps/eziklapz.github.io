@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Search2 — Pipeline Admin</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <div id="gate" class="gate">
+      <h1>Search2 Admin</h1>
+      <p class="sub">This dashboard is encrypted. Enter the passphrase to decrypt it in your browser.</p>
+      <form id="gate-form">
+        <input id="pass-input" type="password" placeholder="Passphrase" autocomplete="current-password" autofocus>
+        <button type="submit" class="btn">Unlock</button>
+      </form>
+      <div id="gate-error" class="error"></div>
+    </div>
+
+    <div id="main" hidden>
+      <header class="page">
+        <h1>Search2 Pipeline</h1>
+        <span class="sub" id="runmeta"></span>
+      </header>
+      <div id="stale" class="banner"></div>
+      <div id="dash"></div>
+      <footer class="page">
+        Decrypted locally in your browser · auto-refreshes every 60s ·
+        <a href="../user/">product showcase</a>
+      </footer>
+    </div>
+  </div>
+  <script src="../assets/common.js"></script>
+  <script src="../assets/admin.js"></script>
+</body>
+</html>
