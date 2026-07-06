@@ -39,8 +39,15 @@ function render(data) {
          "docs awaiting a stage"),
   );
   if (data.work_eta_seconds > 0) {
+    // The ETA only covers deterministically-paced calls; Gemini batch
+    // turnaround is Google's call, so name the excluded volume instead of
+    // silently hiding it.
+    const geminiDocs = ["embed-submit", "vision-submit", "duties-submit"]
+      .reduce((a, k) => a + ((data.feed_depths || {})[k] || 0), 0);
     tiles.append(tile("Paced work left", `~${fmtDur(data.work_eta_seconds)}`,
-                      "SP-API + AliExpress pacing; Gemini batches excluded"));
+                      geminiDocs
+                        ? `SP-API + Ali pacing; excl. ${fmtNum(geminiDocs)} docs on Gemini batches`
+                        : "SP-API + AliExpress pacing; Gemini batches excluded"));
   }
   if (data.budget && data.budget.deadline_at) {
     tiles.append(tile("Time budget", fmtDur((data.budget.minutes || 0) * 60),
