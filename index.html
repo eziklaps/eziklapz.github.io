@@ -1,167 +1,465 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Andrew Walsh | Portfolio</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;1,400&family=Inter:wght@300;400;500&display=swap');
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Andrew Walsh — Actuarial Science &amp; Software</title>
+  <meta name="description" content="Andrew Walsh — actuarial science student at Stellenbosch University building automated, data-driven e-commerce systems.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%232a78d6' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%230ca30c'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* Tokens shared with the Search2 dashboards (web/site/assets/style.css)
+       so the whole domain reads as one system. */
+    :root {
+      --page: #f9f9f7;
+      --surface: #fcfcfb;
+      --ink: #0b0b0b;
+      --ink-2: #52514e;
+      --muted: #898781;
+      --hairline: #e1e0d9;
+      --ring: rgba(11, 11, 11, 0.10);
+      --accent: #2a78d6;
+      --accent-ink: #ffffff;
+      --good: #0ca30c;
+      --good-text: #006300;
+      --serif: 'Lora', Georgia, 'Times New Roman', serif;
+      --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #0d0d0d;
+        --surface: #1a1a19;
+        --ink: #ffffff;
+        --ink-2: #c3c2b7;
+        --muted: #898781;
+        --hairline: #2c2c2a;
+        --ring: rgba(255, 255, 255, 0.10);
+        --accent: #3987e5;
+        --good-text: #0ca30c;
+      }
+    }
 
-        :root {
-            --bg-color: #F7F6F2; /* Warm off-white */
-            --text-main: #2C2A29; /* Deep charcoal */
-            --text-muted: #5C5A58; 
-            --accent: #8B7D6B; /* Taupe */
-        }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font: 400 16px/1.65 var(--sans);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; text-underline-offset: 3px; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+    ::selection { background: var(--accent); color: var(--accent-ink); }
 
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            font-family: 'Inter', sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-        }
+    .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px; }
+    section { scroll-margin-top: 84px; }
 
-        .container {
-            max-width: 800px;
-            padding: 4rem 2rem;
-            width: 100%;
-        }
+    /* ---- top nav ---- */
+    nav.top {
+      position: sticky; top: 0; z-index: 10;
+      background: color-mix(in srgb, var(--page) 82%, transparent);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--hairline);
+    }
+    nav.top .wrap {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 60px;
+    }
+    .wordmark {
+      font-family: var(--serif); font-size: 17px; font-weight: 600;
+      color: var(--ink); letter-spacing: 0.01em;
+    }
+    .wordmark:hover { text-decoration: none; color: var(--accent); }
+    nav.top ul {
+      display: flex; gap: 26px; list-style: none; margin: 0; padding: 0;
+      font-size: 14px; font-weight: 500;
+    }
+    nav.top ul a { color: var(--ink-2); }
+    nav.top ul a:hover { color: var(--ink); text-decoration: none; }
+    nav.top .navlive { display: inline-flex; align-items: center; gap: 7px; }
+    @media (max-width: 560px) {
+      nav.top ul { gap: 18px; }
+      nav.top ul li.optional { display: none; }
+    }
 
-        h1, h2, h3 {
-            font-family: 'Lora', serif;
-            font-weight: 500;
-            color: var(--text-main);
-        }
+    /* pulsing live dot */
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+      display: inline-block; flex: none; position: relative;
+    }
+    .dot::after {
+      content: ""; position: absolute; inset: -4px; border-radius: 50%;
+      border: 1px solid var(--good); opacity: 0;
+      animation: pulse 2.4s ease-out infinite;
+    }
+    @keyframes pulse {
+      0%   { transform: scale(0.4); opacity: 0.9; }
+      70%  { transform: scale(1.15); opacity: 0; }
+      100% { transform: scale(1.15); opacity: 0; }
+    }
 
-        h1 {
-            font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-        }
+    /* ---- hero ---- */
+    header.hero { padding: clamp(64px, 12vh, 128px) 0 clamp(40px, 7vh, 72px); }
+    .kicker {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--muted); margin: 0 0 18px;
+    }
+    header.hero h1 {
+      font-family: var(--serif); font-weight: 500;
+      font-size: clamp(2.7rem, 7.5vw, 4.6rem);
+      line-height: 1.05; letter-spacing: -0.015em;
+      margin: 0 0 20px;
+    }
+    header.hero .tagline {
+      font-size: clamp(1.05rem, 2.2vw, 1.25rem); font-weight: 300;
+      color: var(--ink-2); max-width: 34em; margin: 0 0 34px;
+    }
+    .cta { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 9px;
+      padding: 11px 22px; border-radius: 10px; font-size: 15px; font-weight: 500;
+      border: 1px solid var(--ring); background: var(--accent); color: var(--accent-ink);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn:hover {
+      text-decoration: none; transform: translateY(-1px);
+      box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 30%, transparent);
+    }
+    .btn.ghost { background: transparent; color: var(--ink); border-color: var(--hairline); }
+    .btn.ghost:hover { border-color: var(--ink-2); box-shadow: none; }
 
-        .subtitle {
-            font-size: 1.1rem;
-            color: var(--text-muted);
-            margin-top: 0;
-            margin-bottom: 3rem;
-            font-weight: 300;
-        }
+    /* social icon links */
+    .socials { display: inline-flex; gap: 10px; margin-left: 8px; }
+    a.social {
+      width: 41px; height: 41px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 1px solid var(--hairline); color: var(--ink-2);
+      transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    }
+    a.social:hover {
+      color: var(--accent); border-color: var(--accent);
+      transform: translateY(-1px); text-decoration: none;
+    }
+    a.social svg { display: block; }
 
-        h2 {
-            font-size: 1.5rem;
-            border-bottom: 1px solid #E0DED8;
-            padding-bottom: 0.5rem;
-            margin-top: 2.5rem;
-        }
+    /* fade-up entrance (hero only, single-shot) */
+    .rise { animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+    .rise.d1 { animation-delay: 0.07s; }
+    .rise.d2 { animation-delay: 0.14s; }
+    .rise.d3 { animation-delay: 0.21s; }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: none; }
+    }
 
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 1.5rem;
-        }
+    /* ---- section headings ---- */
+    h2 {
+      font-family: var(--serif); font-weight: 500;
+      font-size: clamp(1.5rem, 3.2vw, 1.9rem); letter-spacing: -0.01em;
+      margin: 0 0 6px;
+    }
+    .sechead { margin: clamp(56px, 9vh, 88px) 0 26px; }
+    .sechead .sub { color: var(--muted); font-size: 14px; margin: 0; }
 
-        .card {
-            background: #FFFFFF;
-            padding: 1.5rem;
-            border-radius: 4px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
-            border: 1px solid #EFEFEF;
-        }
+    /* ---- flagship: Search2 panel ---- */
+    .flagship {
+      background: var(--surface);
+      border: 1px solid var(--ring); border-radius: 18px;
+      padding: clamp(24px, 4.5vw, 40px);
+    }
+    .flagship .head {
+      display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .flagship .head h3 {
+      font-family: var(--serif); font-size: 1.6rem; font-weight: 600; margin: 0;
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12.5px; font-weight: 500; color: var(--good-text);
+      border: 1px solid var(--good); border-radius: 999px; padding: 3px 12px;
+    }
+    .flagship > p { color: var(--ink-2); max-width: 58em; margin: 0 0 26px; }
 
-        .card h3 {
-            margin-top: 0;
-            margin-bottom: 0.5rem;
-            font-size: 1.2rem;
-        }
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px; margin-bottom: 26px;
+    }
+    .stat {
+      border: 1px solid var(--hairline); border-radius: 12px; padding: 14px 16px;
+    }
+    .stat .n {
+      font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums;
+      letter-spacing: -0.01em;
+    }
+    .stat .l { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
 
-        .tags {
-            margin-top: 1rem;
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
+    .doors { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+    a.door {
+      display: flex; flex-direction: column; gap: 6px;
+      border: 1px solid var(--hairline); border-radius: 14px;
+      padding: 18px 20px; color: var(--ink); background: var(--page);
+      transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    a.door:hover {
+      text-decoration: none; border-color: var(--accent);
+      transform: translateY(-2px); box-shadow: 0 8px 24px var(--ring);
+    }
+    .door .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .door .name { font-weight: 600; font-size: 15.5px; display: inline-flex; align-items: center; gap: 9px; }
+    .door .name svg { flex: none; color: var(--accent); }
+    .door .arrow { color: var(--muted); transition: transform 0.15s ease, color 0.15s ease; }
+    a.door:hover .arrow { transform: translateX(3px); color: var(--accent); }
+    .door .path { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .door .desc { font-size: 13.5px; color: var(--ink-2); margin: 2px 0 0; }
+    .lock {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11.5px; color: var(--muted);
+      border: 1px solid var(--hairline); border-radius: 999px; padding: 1px 9px;
+    }
 
-        .tag {
-            font-size: 0.75rem;
-            background: var(--bg-color);
-            color: var(--accent);
-            padding: 0.2rem 0.6rem;
-            border-radius: 20px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
+    /* ---- work grid ---- */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--ring); border-radius: 16px;
+      padding: 24px; display: flex; flex-direction: column; gap: 10px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px var(--ring); }
+    .card h3 { font-family: var(--serif); font-size: 1.15rem; font-weight: 600; margin: 0; }
+    .card p { color: var(--ink-2); font-size: 14.5px; margin: 0; flex: 1; }
+    .tags { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 4px; }
+    .tag {
+      font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent);
+      border-radius: 999px; padding: 3px 10px;
+    }
 
-        a {
-            color: var(--accent);
-            text-decoration: none;
-            transition: color 0.3s ease;
-        }
+    /* ---- about ---- */
+    .about { display: grid; grid-template-columns: 1fr; gap: 28px; }
+    @media (min-width: 720px) { .about { grid-template-columns: 3fr 2fr; } }
+    .about p { margin: 0; color: var(--ink-2); font-size: 16.5px; }
+    .facts { border-left: 1px solid var(--hairline); padding-left: 28px; align-self: start; }
+    @media (max-width: 719px) { .facts { border-left: none; padding-left: 0; } }
+    .facts dl { margin: 0; display: grid; gap: 14px; }
+    .facts dt {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .facts dd { margin: 2px 0 0; font-size: 14.5px; }
 
-        a:hover {
-            color: var(--text-main);
-        }
+    /* ---- beyond ---- */
+    .beyond { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .beyond .item {
+      border: 1px solid var(--hairline); border-radius: 14px; padding: 18px 20px;
+    }
+    .beyond .item .t { font-weight: 600; font-size: 14.5px; margin-bottom: 3px; }
+    .beyond .item .d { color: var(--ink-2); font-size: 13.5px; }
 
-        footer {
-            margin-top: 4rem;
-            text-align: center;
-            font-size: 0.9rem;
-            color: var(--text-muted);
-        }
-
-        @media (min-width: 600px) {
-            .grid { grid-template-columns: 1fr 1fr; }
-        }
-    </style>
+    /* ---- footer ---- */
+    footer.site {
+      margin-top: clamp(64px, 10vh, 104px);
+      border-top: 1px solid var(--hairline);
+      padding: 28px 0 44px;
+      color: var(--muted); font-size: 13.5px;
+    }
+    footer.site .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    footer.site a { color: var(--ink-2); }
+  </style>
 </head>
 <body>
 
-    <div class="container">
-        <header>
-            <h1>Andrew Walsh</h1>
-            <p class="subtitle">Actuarial Science & Software Development</p>
-        </header>
-
-        <section>
-            <h2>About</h2>
-            <p>I am a BCom Actuarial Science student at Stellenbosch University with a strong focus on data, macroeconomics, and automated systems. Alongside my academic work, I am a self-taught developer building data-driven e-commerce applications and managing international trade workflows.</p>
-        </section>
-
-        <section>
-            <h2>Projects & Experience</h2>
-            <div class="grid">
-                <div class="card">
-                    <h3>E-Commerce Automation</h3>
-                    <p>Developed a production-level pipeline utilizing multimodal embeddings to match international product catalogs, streamlining the import process for regional platforms like Takealot.</p>
-                    <div class="tags">
-                        <span class="tag">Python</span>
-                        <span class="tag">MongoDB</span>
-                        <span class="tag">Docker</span>
-                    </div>
-                </div>
-                <div class="card">
-                    <h3>Web Development</h3>
-                    <p>Designed and built front-end interfaces, including a multi-page mock university website for the Developer Society hackathon.</p>
-                    <div class="tags">
-                        <span class="tag">JavaScript</span>
-                        <span class="tag">CSS</span>
-                        <span class="tag">HTML</span>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section>
-            <h2>Beyond the Desk</h2>
-            <p>When I'm not studying or optimizing code, I rely on data to optimize my downtime. You'll usually find me analyzing launch data to perfect my golf swing, using wearable tech to track my marathon training recovery, or planning my next trip to the Orange River.</p>
-        </section>
-
-        <footer>
-            <p>&copy; 2026 Andrew Walsh. All rights reserved.</p>
-        </footer>
+  <nav class="top" aria-label="Site">
+    <div class="wrap">
+      <a class="wordmark" href="/">Andrew Walsh</a>
+      <ul>
+        <li class="optional"><a href="#search2">Search2</a></li>
+        <li class="optional"><a href="#about">About</a></li>
+        <li class="optional"><a href="#work">Work</a></li>
+        <li><a class="navlive" href="/Search2/user/"><span class="dot" aria-hidden="true"></span>Live</a></li>
+      </ul>
     </div>
+  </nav>
+
+  <div class="wrap">
+
+    <header class="hero">
+      <p class="kicker rise">Stellenbosch, South Africa</p>
+      <h1 class="rise d1">Andrew Walsh</h1>
+      <p class="tagline rise d2">Actuarial science student building automated, data-driven
+        systems — including a live e-commerce pipeline that finds, prices and
+        orders products across two marketplaces on its own.</p>
+      <div class="cta rise d3">
+        <a class="btn" href="/Search2/user/">
+          Open the live dashboard
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="btn ghost" href="#about">More about me</a>
+        <span class="socials">
+          <a class="social" href="https://github.com/eziklaps" target="_blank" rel="me noopener" aria-label="GitHub" title="GitHub">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2.17c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 2.89-.39c.98 0 1.97.13 2.89.39 2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.24 2.76.12 3.05.74.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.38-5.26 5.66.41.36.78 1.06.78 2.14v3.17c0 .31.21.68.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+          </a>
+          <a class="social" href="https://www.linkedin.com/in/andrew-walsh-aa5399286/" target="_blank" rel="me noopener" aria-label="LinkedIn" title="LinkedIn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29ZM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12ZM7.12 20.45H3.55V9h3.57v11.45ZM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.72C24 .77 23.2 0 22.22 0Z"/></svg>
+          </a>
+          <a class="social" href="https://www.youtube.com/@andrewwalsh5871" target="_blank" rel="me noopener" aria-label="YouTube" title="YouTube">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.55 12 3.55 12 3.55s-7.5 0-9.38.5A3.02 3.02 0 0 0 .5 6.19C0 8.07 0 12 0 12s0 3.93.5 5.81a3.02 3.02 0 0 0 2.12 2.14c1.88.5 9.38.5 9.38.5s7.5 0 9.38-.5a3.02 3.02 0 0 0 2.12-2.14C24 15.93 24 12 24 12s0-3.93-.5-5.81ZM9.55 15.57V8.43L15.82 12l-6.27 3.57Z"/></svg>
+          </a>
+        </span>
+      </div>
+    </header>
+
+    <section id="search2" aria-labelledby="search2-h">
+      <div class="sechead">
+        <h2 id="search2-h">The flagship: Search2</h2>
+        <p class="sub">A production pipeline, running now — not a mock-up.</p>
+      </div>
+      <div class="flagship">
+        <div class="head">
+          <h3>Search2</h3>
+          <span class="chip"><span class="dot" aria-hidden="true"></span>Live system</span>
+        </div>
+        <p>An autonomous arbitrage pipeline bridging amazon.co.za and AliExpress:
+           multimodal embeddings match products across catalogs, margins are computed
+           through real SARS duties, import VAT and marketplace fees, and a threaded
+           orchestrator hunts, prices, orders and lists — publishing encrypted
+           snapshots to the dashboards below while it runs.</p>
+        <div class="stats" role="list">
+          <div class="stat" role="listitem"><div class="n">5,000+</div><div class="l">ASINs on the price &amp; rank ledger</div></div>
+          <div class="stat" role="listitem"><div class="n">2</div><div class="l">marketplaces bridged</div></div>
+          <div class="stat" role="listitem"><div class="n">100%</div><div class="l">duty- &amp; VAT-aware margins</div></div>
+          <div class="stat" role="listitem"><div class="n">24/7</div><div class="l">remote-controlled from the admin page</div></div>
+        </div>
+        <div class="doors">
+          <a class="door" href="/Search2/user/">
+            <div class="row">
+              <span class="name">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+                Product finds
+              </span>
+              <span class="arrow" aria-hidden="true">&#8594;</span>
+            </div>
+            <span class="path">/Search2/user/</span>
+            <p class="desc">The showcase: winning products, Amazon-vs-AliExpress
+               comparisons, price &amp; rank sparklines, and a real order desk.</p>
+            <span class="lock">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              passphrase-protected
+            </span>
+          </a>
+          <a class="door" href="/Search2/admin/">
+            <div class="row">
+              <span class="name">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>
+                Pipeline admin
+              </span>
+              <span class="arrow" aria-hidden="true">&#8594;</span>
+            </div>
+            <span class="path">/Search2/admin/</span>
+            <p class="desc">Operations: lane health, batch jobs, keyword budget,
+               deadline countdown and full remote control of the run.</p>
+            <span class="lock">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              passphrase-protected
+            </span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section id="about" aria-labelledby="about-h">
+      <div class="sechead">
+        <h2 id="about-h">About</h2>
+      </div>
+      <div class="about">
+        <p>I am a BCom Actuarial Science student at Stellenbosch University with a
+           strong focus on data, macroeconomics and automated systems. Alongside my
+           academic work, I am a self-taught developer building data-driven
+           e-commerce applications and managing international trade workflows.</p>
+        <div class="facts">
+          <dl>
+            <div><dt>Studying</dt><dd>BCom Actuarial Science, Stellenbosch University</dd></div>
+            <div><dt>Focus</dt><dd>Data, macroeconomics, automated systems</dd></div>
+            <div><dt>Stack</dt><dd>Python · MongoDB · JavaScript · LLM &amp; embedding APIs</dd></div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <section id="work" aria-labelledby="work-h">
+      <div class="sechead">
+        <h2 id="work-h">Work</h2>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <h3>Market-intelligence ledger</h3>
+          <p>A self-built price and sales-rank history for amazon.co.za — a
+             marketplace no off-the-shelf tracker covers. Daily snapshots across the
+             full catalog surface movers, first-offer flips and dormant listings.</p>
+          <div class="tags"><span class="tag">Python</span><span class="tag">MongoDB</span><span class="tag">SP-API</span></div>
+        </div>
+        <div class="card">
+          <h3>E-commerce automation</h3>
+          <p>Production pipeline using multimodal embeddings to match international
+             product catalogs, streamlining the import process for regional
+             platforms.</p>
+          <div class="tags"><span class="tag">Python</span><span class="tag">Gemini</span><span class="tag">Docker</span></div>
+        </div>
+        <div class="card">
+          <h3>Web development</h3>
+          <p>Front-end interfaces, including this site, the encrypted Search2
+             dashboards, and a multi-page mock university website for the Developer
+             Society hackathon.</p>
+          <div class="tags"><span class="tag">JavaScript</span><span class="tag">CSS</span><span class="tag">HTML</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="beyond" aria-labelledby="beyond-h">
+      <div class="sechead">
+        <h2 id="beyond-h">Beyond the desk</h2>
+        <p class="sub">Data optimises the downtime too.</p>
+      </div>
+      <div class="beyond">
+        <div class="item">
+          <div class="t">Golf</div>
+          <div class="d">Analysing launch data to perfect the swing.</div>
+        </div>
+        <div class="item">
+          <div class="t">Marathon training</div>
+          <div class="d">Wearable tech tracks the recovery between long runs.</div>
+        </div>
+        <div class="item">
+          <div class="t">The Orange River</div>
+          <div class="d">Always planning the next trip north.</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer class="site">
+    <div class="wrap">
+      <span>&copy; 2026 Andrew Walsh. All rights reserved.</span>
+      <span>
+        <a href="https://github.com/eziklaps" target="_blank" rel="me noopener">GitHub</a> &middot;
+        <a href="https://www.linkedin.com/in/andrew-walsh-aa5399286/" target="_blank" rel="me noopener">LinkedIn</a> &middot;
+        <a href="https://www.youtube.com/@andrewwalsh5871" target="_blank" rel="me noopener">YouTube</a> &middot;
+        <a href="/Search2/user/">Product finds</a> &middot;
+        <a href="/Search2/admin/">Pipeline admin</a>
+      </span>
+    </div>
+  </footer>
 
 </body>
 </html>
