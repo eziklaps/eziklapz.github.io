@@ -14,7 +14,7 @@ const DATA_BASE =
    publish. Empty = everything below falls back to the legacy
    raw.githubusercontent + polling behavior. ?liveBase=http://127.0.0.1:8787
    overrides for local testing against `wrangler dev`. */
-const S2_LIVE_BASE = ""; // set to the Worker URL at cutover (see web/edge/README.md)
+const S2_LIVE_BASE = "https://search2-live.eziklapz.workers.dev"; // → the domain once /api/* is routed
 const LIVE_BASE =
   new URLSearchParams(location.search).get("liveBase") || S2_LIVE_BASE;
 
