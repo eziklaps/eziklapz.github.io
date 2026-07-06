@@ -1,40 +1,27 @@
 {
- "generated_at": "2026-07-06T07:36:32.120935+00:00",
+ "generated_at": "2026-07-06T07:36:47.683362+00:00",
  "products": [
-  {
-   "asin": "B01EMMKI4O",
-   "title": "Brand: Tryone Product: Gooseneck Tablet Holder Stand for Bed: Tryone Adjustable Flexible Arm Tablets Mount Clamp on Tabl",
-   "margin_total": 759.17,
-   "margin_percent": 71.46,
-   "amazon_price": 1062.33,
-   "amazon_buybox_price": 1062.33,
-   "amazon_total_offers": 1,
-   "sales_rank": null,
-   "sales_rank_category": null,
-   "ali_id": "1005012061799929",
-   "ali_price_used": 179.24,
-   "ali_price_source": "sku",
-   "sku_id": "12000057427502597",
-   "sku_price": 179.24,
-   "freight": 0.0,
-   "import_percentage": 20.0,
-   "is_fallback_duty": false,
-   "source_keywords": "tablet stand desk clamp",
-   "amazon_url": "https://www.amazon.co.za/dp/B01EMMKI4O",
-   "aliexpress_url": "https://www.aliexpress.com/item/1005012061799929.html",
-   "image_url": "https://m.media-amazon.com/images/I/61wQvMWAaML.jpg",
-   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/S8550bcdd4756402e8eb4c632670d3e6fB.jpg"
-  },
   {
    "asin": "B0F2ZRY9Q7",
    "title": "Brand: BOXSAM Product: Vacuum Seal Backpack for Clothing Travel Large Waterproof e Saver Vacuum Storage Compression Bags",
    "margin_total": 572.24,
    "margin_percent": 61.5,
+   "opportunity_score": 59.9,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 930.4,
    "amazon_buybox_price": 930.4,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 930.4,
+   "price_max_seen": 930.4,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005009212364508",
    "ali_price_used": 143.19,
    "ali_price_source": "sku",
@@ -46,6 +33,22 @@
    "source_keywords": "no pump vacuum storage bags",
    "amazon_url": "https://www.amazon.co.za/dp/B0F2ZRY9Q7",
    "aliexpress_url": "https://www.aliexpress.com/item/1005009212364508.html",
+   "score_components": {
+    "margin": 1.0,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      930.4
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/61FyLVF2C0L.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sdf3dbc8e89744ffa902c5a15e806efd21.jpg"
   },
@@ -54,11 +57,22 @@
    "title": "Brand: Enhon Product: Enhon Expandable Sliding Drawer Organizer for Kitchen Drawers, Deep Drawer Organizer Tray with Adj",
    "margin_total": 412.85,
    "margin_percent": 56.6,
+   "opportunity_score": 59.9,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 729.38,
    "amazon_buybox_price": 729.38,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 729.38,
+   "price_max_seen": 729.39,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005008141302338",
    "ali_price_used": 200.76,
    "ali_price_source": "sku",
@@ -70,6 +84,22 @@
    "source_keywords": "kitchen drawer dividers adjustable",
    "amazon_url": "https://www.amazon.co.za/dp/B0FSRGT1RH",
    "aliexpress_url": "https://www.aliexpress.com/item/1005008141302338.html",
+   "score_components": {
+    "margin": 1.0,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      729.39
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/71UchoioqTL.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/S7413078e54834c3090350e86738f0fedB.jpg"
   },
@@ -78,11 +108,22 @@
    "title": "Brand: HUSAIHU Product: Electric Food Chopper, 250ML Mini Wireless Portable Meat Grinder, USB Charging Garlic Chopper, E",
    "margin_total": 370.17,
    "margin_percent": 57.91,
+   "opportunity_score": 59.9,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 639.21,
    "amazon_buybox_price": 639.21,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 639.21,
+   "price_max_seen": 639.21,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005007956548392",
    "ali_price_used": 203.5,
    "ali_price_source": "sku",
@@ -94,43 +135,46 @@
    "source_keywords": "mini food processor electric | mini food processor electric chopper",
    "amazon_url": "https://www.amazon.co.za/dp/B0C5X9TRHQ",
    "aliexpress_url": "https://www.aliexpress.com/item/1005007956548392.html",
+   "score_components": {
+    "margin": 1.0,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      639.21
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/71skDBqlbWL.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sfca6956ed75a40b7afe46398285a49b3s.jpg"
-  },
-  {
-   "asin": "B0CGLWMH7F",
-   "title": "Brand: Selfdee Product: Selfdee Cell Phone Holder,Lazy Bracket, 360-degree Rotating Universal Flexible Long Arms Clip Mo",
-   "margin_total": 365.67,
-   "margin_percent": 55.4,
-   "amazon_price": 660.0,
-   "amazon_buybox_price": 660.0,
-   "amazon_total_offers": 2,
-   "sales_rank": 12597,
-   "sales_rank_category": "Electronics",
-   "ali_id": "1005007123892856",
-   "ali_price_used": 187.33,
-   "ali_price_source": "sku",
-   "sku_id": "12000039479345188",
-   "sku_price": 187.33,
-   "freight": 0.0,
-   "import_percentage": 20.0,
-   "is_fallback_duty": false,
-   "source_keywords": "tablet stand desk clamp",
-   "amazon_url": "https://www.amazon.co.za/dp/B0CGLWMH7F",
-   "aliexpress_url": "https://www.aliexpress.com/item/1005007123892856.html",
-   "image_url": "https://m.media-amazon.com/images/I/51ilIYe7ztL.jpg",
-   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sc735cf7b88894f5ba18a1e0ee3c4b13aO.jpg"
   },
   {
    "asin": "B0CKX78TGK",
    "title": "Brand: PONDI Product: PONDI Mini Electric Food Processor & Garlic Chopper, 250ML USB Rechargeable, One-Touch Cordless Ch",
    "margin_total": 352.21,
    "margin_percent": 52.51,
+   "opportunity_score": 59.9,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 670.69,
    "amazon_buybox_price": 670.69,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 670.69,
+   "price_max_seen": 670.69,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005010177436584",
    "ali_price_used": 244.59,
    "ali_price_source": "sku",
@@ -142,43 +186,158 @@
    "source_keywords": "mini food processor electric | mini food processor electric chopper",
    "amazon_url": "https://www.amazon.co.za/dp/B0CKX78TGK",
    "aliexpress_url": "https://www.aliexpress.com/item/1005010177436584.html",
+   "score_components": {
+    "margin": 1.0,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      670.69
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/517o-nGaU9L.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Se355ae02683a435f8821525fc37f87d2h.jpg"
   },
   {
-   "asin": "B0CCVHQZ2P",
-   "title": "Brand: ALMING Product: ALMING Compression Bags - Travel Essentials 12 Pack Space Saver No Vacuum or Pump Needed Storage ",
-   "margin_total": 310.18,
-   "margin_percent": 45.57,
-   "amazon_price": 680.73,
-   "amazon_buybox_price": 680.73,
-   "amazon_total_offers": 2,
-   "sales_rank": 49574,
-   "sales_rank_category": "Home & Kitchen",
-   "ali_id": "1005010368892733",
-   "ali_price_used": 251.6,
+   "asin": "B01EMMKI4O",
+   "title": "Brand: Tryone Product: Gooseneck Tablet Holder Stand for Bed: Tryone Adjustable Flexible Arm Tablets Mount Clamp on Tabl",
+   "margin_total": 759.17,
+   "margin_percent": 71.46,
+   "opportunity_score": 59.6,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
+   "amazon_price": 1062.33,
+   "amazon_buybox_price": 1062.33,
+   "amazon_total_offers": 1,
+   "sales_rank": null,
+   "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 1062.33,
+   "price_max_seen": 1062.33,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
+   "ali_id": "1005012061799929",
+   "ali_price_used": 179.24,
    "ali_price_source": "sku",
-   "sku_id": "12000052221360107",
-   "sku_price": 251.6,
+   "sku_id": "12000057427502597",
+   "sku_price": 179.24,
    "freight": 0.0,
-   "import_percentage": 15.0,
+   "import_percentage": 20.0,
    "is_fallback_duty": false,
-   "source_keywords": "no pump vacuum storage bags",
-   "amazon_url": "https://www.amazon.co.za/dp/B0CCVHQZ2P",
-   "aliexpress_url": "https://www.aliexpress.com/item/1005010368892733.html",
-   "image_url": "https://m.media-amazon.com/images/I/61wCsjPbUWL.jpg",
-   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Ad35f860b5e624599b4832285e04ed8c9E.jpg"
+   "source_keywords": "tablet stand desk clamp",
+   "amazon_url": "https://www.amazon.co.za/dp/B01EMMKI4O",
+   "aliexpress_url": "https://www.aliexpress.com/item/1005012061799929.html",
+   "score_components": {
+    "margin": 1.0,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 0.973,
+    "quality_penalties": [
+     "similarity_0.79"
+    ]
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      1062.33
+     ]
+    ]
+   },
+   "image_url": "https://m.media-amazon.com/images/I/61wQvMWAaML.jpg",
+   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/S8550bcdd4756402e8eb4c632670d3e6fB.jpg"
+  },
+  {
+   "asin": "B0CGLWMH7F",
+   "title": "Brand: Selfdee Product: Selfdee Cell Phone Holder,Lazy Bracket, 360-degree Rotating Universal Flexible Long Arms Clip Mo",
+   "margin_total": 365.67,
+   "margin_percent": 55.4,
+   "opportunity_score": 59.2,
+   "score_confidence": 0.51,
+   "score_category": "low_competition",
+   "amazon_price": 660.0,
+   "amazon_buybox_price": 660.0,
+   "amazon_total_offers": 2,
+   "sales_rank": 12597,
+   "sales_rank_category": "Electronics",
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 660.0,
+   "price_max_seen": 660.0,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
+   "ali_id": "1005007123892856",
+   "ali_price_used": 187.33,
+   "ali_price_source": "sku",
+   "sku_id": "12000039479345188",
+   "sku_price": 187.33,
+   "freight": 0.0,
+   "import_percentage": 20.0,
+   "is_fallback_duty": false,
+   "source_keywords": "tablet stand desk clamp",
+   "amazon_url": "https://www.amazon.co.za/dp/B0CGLWMH7F",
+   "aliexpress_url": "https://www.aliexpress.com/item/1005007123892856.html",
+   "score_components": {
+    "margin": 1.0,
+    "demand": 0.482,
+    "moat": 0.8,
+    "stability": null,
+    "quality": 0.901,
+    "quality_penalties": [
+     "similarity_0.76"
+    ]
+   },
+   "history": {
+    "rank": [
+     [
+      "2026-07-05",
+      12600
+     ]
+    ],
+    "price": [
+     [
+      "2026-07-05",
+      660.0
+     ]
+    ]
+   },
+   "image_url": "https://m.media-amazon.com/images/I/51ilIYe7ztL.jpg",
+   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sc735cf7b88894f5ba18a1e0ee3c4b13aO.jpg"
   },
   {
    "asin": "B0DBLFW8KZ",
    "title": "Brand: BTFO Product: Mini Bag Sealer, 2 in 1 Bag Sealer And Cutter Magnet Rechargeable Sealing Machine Portable Handheld",
    "margin_total": 264.64,
    "margin_percent": 57.46,
+   "opportunity_score": 58.9,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 460.6,
    "amazon_buybox_price": 460.6,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 460.6,
+   "price_max_seen": 460.6,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005011911338491",
    "ali_price_used": 148.44,
    "ali_price_source": "sku",
@@ -190,19 +349,105 @@
    "source_keywords": "food sealer vacuum sealer handheld | mini food vacuum sealer | mini food vacuum sealer machine",
    "amazon_url": "https://www.amazon.co.za/dp/B0DBLFW8KZ",
    "aliexpress_url": "https://www.aliexpress.com/item/1005011911338491.html",
+   "score_components": {
+    "margin": 0.953,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      460.6
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/61HOZKFxd4L.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sfc74daae066a4511869e92f9921223cbs.jpg"
+  },
+  {
+   "asin": "B0CCVHQZ2P",
+   "title": "Brand: ALMING Product: ALMING Compression Bags - Travel Essentials 12 Pack Space Saver No Vacuum or Pump Needed Storage ",
+   "margin_total": 310.18,
+   "margin_percent": 45.57,
+   "opportunity_score": 58.5,
+   "score_confidence": 0.51,
+   "score_category": "low_competition",
+   "amazon_price": 680.73,
+   "amazon_buybox_price": 680.73,
+   "amazon_total_offers": 2,
+   "sales_rank": 49574,
+   "sales_rank_category": "Home & Kitchen",
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 680.73,
+   "price_max_seen": 680.73,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
+   "ali_id": "1005010368892733",
+   "ali_price_used": 251.6,
+   "ali_price_source": "sku",
+   "sku_id": "12000052221360107",
+   "sku_price": 251.6,
+   "freight": 0.0,
+   "import_percentage": 15.0,
+   "is_fallback_duty": false,
+   "source_keywords": "no pump vacuum storage bags",
+   "amazon_url": "https://www.amazon.co.za/dp/B0CCVHQZ2P",
+   "aliexpress_url": "https://www.aliexpress.com/item/1005010368892733.html",
+   "score_components": {
+    "margin": 1.0,
+    "demand": 0.378,
+    "moat": 0.8,
+    "stability": null,
+    "quality": 0.961,
+    "quality_penalties": [
+     "similarity_0.78"
+    ]
+   },
+   "history": {
+    "rank": [
+     [
+      "2026-07-05",
+      49574
+     ]
+    ],
+    "price": [
+     [
+      "2026-07-05",
+      680.73
+     ]
+    ]
+   },
+   "image_url": "https://m.media-amazon.com/images/I/61wCsjPbUWL.jpg",
+   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Ad35f860b5e624599b4832285e04ed8c9E.jpg"
   },
   {
    "asin": "B0DG8SHGY3",
    "title": "Brand: Generic Product: Vehicle Diagnostic Scan Tool. OBDII Adapter Bluetooth/WiFi Connection. Clear Fault Codes, remove",
    "margin_total": 229.49,
    "margin_percent": 61.7,
+   "opportunity_score": 57.6,
+   "score_confidence": 0.51,
+   "score_category": "low_competition",
    "amazon_price": 371.93,
    "amazon_buybox_price": null,
    "amazon_total_offers": null,
    "sales_rank": 5347,
    "sales_rank_category": "Electronics",
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 371.93,
+   "price_max_seen": 371.93,
+   "offers_delta_24h": null,
+   "trend_flags": "rank-appeared",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005010288319436",
    "ali_price_used": 24.76,
    "ali_price_source": "search_teaser",
@@ -214,6 +459,30 @@
    "source_keywords": "mini car diagnostic tool",
    "amazon_url": "https://www.amazon.co.za/dp/B0DG8SHGY3",
    "aliexpress_url": "https://www.aliexpress.com/item/1005010288319436.html",
+   "score_components": {
+    "margin": 0.906,
+    "demand": 0.67,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 0.55,
+    "quality_penalties": [
+     "teaser_price"
+    ]
+   },
+   "history": {
+    "rank": [
+     [
+      "2026-07-05",
+      5156
+     ]
+    ],
+    "price": [
+     [
+      "2026-07-05",
+      371.93
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/319EcBm+iJL.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/S1827a6262ede4cb58e2923a70f483023S.jpg"
   },
@@ -222,11 +491,22 @@
    "title": "Product: Mini Food Processor Garlic Chopper, 3 Blades Electric Veggie Vegetable Chopper, Garlic Slicer, Chopper Vegetabl",
    "margin_total": 198.03,
    "margin_percent": 38.95,
+   "opportunity_score": 56.8,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 508.4,
    "amazon_buybox_price": 508.4,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 508.4,
+   "price_max_seen": 508.62,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005010177436584",
    "ali_price_used": 244.59,
    "ali_price_source": "sku",
@@ -238,43 +518,46 @@
    "source_keywords": "mini food processor electric | mini food processor electric chopper",
    "amazon_url": "https://www.amazon.co.za/dp/B0F1423L64",
    "aliexpress_url": "https://www.aliexpress.com/item/1005010177436584.html",
+   "score_components": {
+    "margin": 0.848,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      508.62
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/71nDIp-nPLL.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Se355ae02683a435f8821525fc37f87d2h.jpg"
-  },
-  {
-   "asin": "B0D8BQWDRW",
-   "title": "Brand: Generic Product: AUTOELECTRIC BLUETOOTH CAR DIAGNOSTIC SCAN Tool WIRELESS CONNECTION Color: Nardo Black Manufactu",
-   "margin_total": 168.98,
-   "margin_percent": 56.52,
-   "amazon_price": 299.0,
-   "amazon_buybox_price": null,
-   "amazon_total_offers": null,
-   "sales_rank": null,
-   "sales_rank_category": null,
-   "ali_id": "1005010303245969",
-   "ali_price_used": 27.73,
-   "ali_price_source": "search_teaser",
-   "sku_id": "12000051861832409",
-   "sku_price": null,
-   "freight": 23.86,
-   "import_percentage": 0.0,
-   "is_fallback_duty": false,
-   "source_keywords": "",
-   "amazon_url": "https://www.amazon.co.za/dp/B0D8BQWDRW",
-   "aliexpress_url": "https://www.aliexpress.com/item/1005010303245969.html",
-   "image_url": "https://m.media-amazon.com/images/I/51b9UCQYbRL.jpg",
-   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sa5c9846ce4de4c3a8568d737bb802c7bd.jpg"
   },
   {
    "asin": "B0CRB8BQZ2",
    "title": "Brand: HAMAPI Product: Mini Bag Sealer,Portable,Rechargeable Handheld Heat Vacuum Sealer,2 in 1 Sealer and Cutter, Porta",
    "margin_total": 157.09,
    "margin_percent": 45.22,
+   "opportunity_score": 56.0,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 347.39,
    "amazon_buybox_price": 347.39,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 347.39,
+   "price_max_seen": 347.39,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005011911338491",
    "ali_price_used": 148.44,
    "ali_price_source": "sku",
@@ -286,6 +569,22 @@
    "source_keywords": "food sealer vacuum sealer handheld | mini food vacuum sealer | mini food vacuum sealer machine",
    "amazon_url": "https://www.amazon.co.za/dp/B0CRB8BQZ2",
    "aliexpress_url": "https://www.aliexpress.com/item/1005011911338491.html",
+   "score_components": {
+    "margin": 0.809,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      347.39
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/61-Ddchq2hL.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sfc74daae066a4511869e92f9921223cbs.jpg"
   },
@@ -294,11 +593,22 @@
    "title": "Brand: Generic Product: Car Tire Pen Portable Tire Pressure Gauge - Silver (1092) Color: Silver Manufacturer: Generic Fe",
    "margin_total": 107.63,
    "margin_percent": 56.65,
+   "opportunity_score": 54.7,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 190.0,
    "amazon_buybox_price": 190.0,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 190.0,
+   "price_max_seen": 190.0,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005007907724316",
    "ali_price_used": 5.65,
    "ali_price_source": "sku",
@@ -310,6 +620,22 @@
    "source_keywords": "tire pressure gauge digital | tire pressure gauge digital for cars",
    "amazon_url": "https://www.amazon.co.za/dp/B0GD1NRD1S",
    "aliexpress_url": "https://www.aliexpress.com/item/1005007907724316.html",
+   "score_components": {
+    "margin": 0.744,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      190.0
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/41-71+vv76L.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/S7a56342b8a1e4924a42719ead3934d9d1.jpg"
   },
@@ -318,11 +644,22 @@
    "title": "Brand: waymore Product: waymore Adjustable Cell Phone Stand,Phone Stand,iPhone Holder for Desk,Height Adjustable Cell Ph",
    "margin_total": 79.73,
    "margin_percent": 48.32,
+   "opportunity_score": 53.1,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
    "amazon_price": 165.0,
    "amazon_buybox_price": 165.0,
    "amazon_total_offers": 1,
    "sales_rank": null,
    "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 165.0,
+   "price_max_seen": 165.0,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005012242305482",
    "ali_price_used": 7.33,
    "ali_price_source": "sku",
@@ -334,19 +671,102 @@
    "source_keywords": "adjustable tablet stand desk",
    "amazon_url": "https://www.amazon.co.za/dp/B0F2FVKFW6",
    "aliexpress_url": "https://www.aliexpress.com/item/1005012242305482.html",
+   "score_components": {
+    "margin": 0.706,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 0.897,
+    "quality_penalties": [
+     "similarity_0.76"
+    ]
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      165.0
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/51tWs8u-gjL.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sde9d46294faa438ca146ef0e1b5a22afm.jpg"
+  },
+  {
+   "asin": "B0D8BQWDRW",
+   "title": "Brand: Generic Product: AUTOELECTRIC BLUETOOTH CAR DIAGNOSTIC SCAN Tool WIRELESS CONNECTION Color: Nardo Black Manufactu",
+   "margin_total": 168.98,
+   "margin_percent": 56.52,
+   "opportunity_score": 51.7,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
+   "amazon_price": 299.0,
+   "amazon_buybox_price": null,
+   "amazon_total_offers": null,
+   "sales_rank": null,
+   "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 299.0,
+   "price_max_seen": 299.0,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
+   "ali_id": "1005010303245969",
+   "ali_price_used": 27.73,
+   "ali_price_source": "search_teaser",
+   "sku_id": "12000051861832409",
+   "sku_price": null,
+   "freight": 23.86,
+   "import_percentage": 0.0,
+   "is_fallback_duty": false,
+   "source_keywords": "",
+   "amazon_url": "https://www.amazon.co.za/dp/B0D8BQWDRW",
+   "aliexpress_url": "https://www.aliexpress.com/item/1005010303245969.html",
+   "score_components": {
+    "margin": 0.825,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 0.458,
+    "quality_penalties": [
+     "teaser_price",
+     "similarity_0.76"
+    ]
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      299.0
+     ]
+    ]
+   },
+   "image_url": "https://m.media-amazon.com/images/I/51b9UCQYbRL.jpg",
+   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sa5c9846ce4de4c3a8568d737bb802c7bd.jpg"
   },
   {
    "asin": "B0GKWBVRQS",
    "title": "Brand: Generic Product: Adjustable Swivel Desktop Metal Stand for Phone, Tablet, PC, 360\u00b0 Rotation, Foldable, Portable, ",
    "margin_total": 22.07,
    "margin_percent": 22.29,
+   "opportunity_score": 48.0,
+   "score_confidence": 0.51,
+   "score_category": "low_competition",
    "amazon_price": 99.0,
    "amazon_buybox_price": 99.0,
    "amazon_total_offers": 1,
    "sales_rank": 22449,
    "sales_rank_category": "Electronics",
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 99.0,
+   "price_max_seen": 99.0,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005010291106503",
    "ali_price_used": 6.08,
    "ali_price_source": "sku",
@@ -358,67 +778,54 @@
    "source_keywords": "tablet stand desk | adjustable tablet stand desk | foldable tablet desk stand",
    "amazon_url": "https://www.amazon.co.za/dp/B0GKWBVRQS",
    "aliexpress_url": "https://www.aliexpress.com/item/1005010291106503.html",
+   "score_components": {
+    "margin": 0.364,
+    "demand": 0.439,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 0.994,
+    "quality_penalties": [
+     "similarity_0.80"
+    ]
+   },
+   "history": {
+    "rank": [
+     [
+      "2026-07-05",
+      22361
+     ]
+    ],
+    "price": [
+     [
+      "2026-07-05",
+      99.0
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/41DyDIgy8ZL.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/S7adad522403f4d3b81a8ed9c01b08cf5V.jpg"
-  },
-  {
-   "asin": "B0DHLLF5NS",
-   "title": "Brand: OBD DYNAMICS Product: OBD DYNAMICS OBD2 Extension Adaptor Cable Ultra Slim, 60cm, 16 Pin OBD Male to Female, Car ",
-   "margin_total": 9.39,
-   "margin_percent": 4.97,
-   "amazon_price": 189.0,
-   "amazon_buybox_price": null,
-   "amazon_total_offers": null,
-   "sales_rank": null,
-   "sales_rank_category": null,
-   "ali_id": "1005012496896484",
-   "ali_price_used": 127.22,
-   "ali_price_source": "search_teaser",
-   "sku_id": "12000058519009768",
-   "sku_price": null,
-   "freight": 0.0,
-   "import_percentage": 15.0,
-   "is_fallback_duty": false,
-   "source_keywords": "",
-   "amazon_url": "https://www.amazon.co.za/dp/B0DHLLF5NS",
-   "aliexpress_url": "https://www.aliexpress.com/item/1005012496896484.html",
-   "image_url": "https://m.media-amazon.com/images/I/61SBBd-o3wL.jpg",
-   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/S1bee305f34a74d67b97c6750534f807fT.jpg"
-  },
-  {
-   "asin": "B0H5WQ1CXS",
-   "title": "Brand: Generic Product: Manual Food Chopper, Pull String Vegetable Cutter, White and Red, Transparent Bowl Model: Reelit",
-   "margin_total": 2.65,
-   "margin_percent": 1.04,
-   "amazon_price": 255.0,
-   "amazon_buybox_price": 255.0,
-   "amazon_total_offers": 1,
-   "sales_rank": null,
-   "sales_rank_category": null,
-   "ali_id": "1005006754258822",
-   "ali_price_used": 25.46,
-   "ali_price_source": "sku",
-   "sku_id": "12000038195112045",
-   "sku_price": 25.46,
-   "freight": 204.08,
-   "import_percentage": 20.0,
-   "is_fallback_duty": false,
-   "source_keywords": "vegetables chopper manual",
-   "amazon_url": "https://www.amazon.co.za/dp/B0H5WQ1CXS",
-   "aliexpress_url": "https://www.aliexpress.com/item/1005006754258822.html",
-   "image_url": "https://m.media-amazon.com/images/I/4189Y0lUmhL.jpg",
-   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Se2ffb50db31d45909eaac42d2d8d03e8m.jpg"
   },
   {
    "asin": "B0GXPH95Z6",
    "title": "Brand: Generic Product: 360\u00b0 Rotation Desktop Phone and Tablet Stand, Foldable, Height-Adjustable, Metal, for iPhone and",
    "margin_total": 0.15,
    "margin_percent": 0.22,
+   "opportunity_score": 42.3,
+   "score_confidence": 0.51,
+   "score_category": "low_competition",
    "amazon_price": 69.0,
    "amazon_buybox_price": 69.0,
    "amazon_total_offers": 1,
    "sales_rank": 4564,
    "sales_rank_category": "Electronics",
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 69.0,
+   "price_max_seen": 69.0,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
    "ali_id": "1005010307883003",
    "ali_price_used": 5.02,
    "ali_price_source": "sku",
@@ -430,8 +837,143 @@
    "source_keywords": "tablet stand desk | adjustable tablet stand desk | foldable tablet desk stand",
    "amazon_url": "https://www.amazon.co.za/dp/B0GXPH95Z6",
    "aliexpress_url": "https://www.aliexpress.com/item/1005010307883003.html",
+   "score_components": {
+    "margin": 0.003,
+    "demand": 0.562,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 1.0,
+    "quality_penalties": []
+   },
+   "history": {
+    "rank": [
+     [
+      "2026-07-05",
+      4434
+     ]
+    ],
+    "price": [
+     [
+      "2026-07-05",
+      69.0
+     ]
+    ]
+   },
    "image_url": "https://m.media-amazon.com/images/I/51+dfrGkS-L.jpg",
    "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Sa3ba7d1eeea74b2780285fad076af23ay.jpg"
+  },
+  {
+   "asin": "B0H5WQ1CXS",
+   "title": "Brand: Generic Product: Manual Food Chopper, Pull String Vegetable Cutter, White and Red, Transparent Bowl Model: Reelit",
+   "margin_total": 2.65,
+   "margin_percent": 1.04,
+   "opportunity_score": 39.3,
+   "score_confidence": 0.4,
+   "score_category": "low_competition",
+   "amazon_price": 255.0,
+   "amazon_buybox_price": 255.0,
+   "amazon_total_offers": 1,
+   "sales_rank": null,
+   "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 255.0,
+   "price_max_seen": 255.0,
+   "offers_delta_24h": null,
+   "trend_flags": "",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
+   "ali_id": "1005006754258822",
+   "ali_price_used": 25.46,
+   "ali_price_source": "sku",
+   "sku_id": "12000038195112045",
+   "sku_price": 25.46,
+   "freight": 204.08,
+   "import_percentage": 20.0,
+   "is_fallback_duty": false,
+   "source_keywords": "vegetables chopper manual",
+   "amazon_url": "https://www.amazon.co.za/dp/B0H5WQ1CXS",
+   "aliexpress_url": "https://www.aliexpress.com/item/1005006754258822.html",
+   "score_components": {
+    "margin": 0.019,
+    "demand": null,
+    "moat": 0.9,
+    "stability": null,
+    "quality": 0.893,
+    "quality_penalties": [
+     "similarity_0.76"
+    ]
+   },
+   "history": {
+    "price": [
+     [
+      "2026-07-05",
+      255.0
+     ]
+    ]
+   },
+   "image_url": "https://m.media-amazon.com/images/I/4189Y0lUmhL.jpg",
+   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/Se2ffb50db31d45909eaac42d2d8d03e8m.jpg"
+  },
+  {
+   "asin": "B0DHLLF5NS",
+   "title": "Brand: OBD DYNAMICS Product: OBD DYNAMICS OBD2 Extension Adaptor Cable Ultra Slim, 60cm, 16 Pin OBD Male to Female, Car ",
+   "margin_total": 9.39,
+   "margin_percent": 4.97,
+   "opportunity_score": 39.1,
+   "score_confidence": 0.51,
+   "score_category": "contested",
+   "amazon_price": 189.0,
+   "amazon_buybox_price": null,
+   "amazon_total_offers": null,
+   "sales_rank": null,
+   "sales_rank_category": null,
+   "rank_delta_24h": null,
+   "rank_delta_7d": null,
+   "price_min_seen": 189.0,
+   "price_max_seen": 189.0,
+   "offers_delta_24h": null,
+   "trend_flags": "rank-appeared",
+   "amazon_restricted": null,
+   "restriction_reasons": "",
+   "ali_id": "1005012496896484",
+   "ali_price_used": 127.22,
+   "ali_price_source": "search_teaser",
+   "sku_id": "12000058519009768",
+   "sku_price": null,
+   "freight": 0.0,
+   "import_percentage": 15.0,
+   "is_fallback_duty": false,
+   "source_keywords": "",
+   "amazon_url": "https://www.amazon.co.za/dp/B0DHLLF5NS",
+   "aliexpress_url": "https://www.aliexpress.com/item/1005012496896484.html",
+   "score_components": {
+    "margin": 0.087,
+    "demand": 0.694,
+    "moat": 0.7,
+    "stability": null,
+    "quality": 0.516,
+    "quality_penalties": [
+     "teaser_price",
+     "similarity_0.79"
+    ]
+   },
+   "history": {
+    "rank": [
+     [
+      "2026-07-05",
+      3769
+     ]
+    ],
+    "price": [
+     [
+      "2026-07-05",
+      189.0
+     ]
+    ]
+   },
+   "image_url": "https://m.media-amazon.com/images/I/61SBBd-o3wL.jpg",
+   "ali_image_url": "https://ae-pic-a1.aliexpress-media.com/kf/S1bee305f34a74d67b97c6750534f807fT.jpg"
   }
  ]
 }
