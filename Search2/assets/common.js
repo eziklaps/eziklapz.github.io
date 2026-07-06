@@ -7,10 +7,37 @@ const DATA_BASE =
   new URLSearchParams(location.search).get("dataBase") ||
   "https://raw.githubusercontent.com/eziklaps/eziklapz.github.io/data/Search2/data";
 
+/* "no-cache" (not "no-store"): raw.githubusercontent serves max-age=300 with
+   a strong ETag through a Fastly edge in Cape Town, so a revalidation is a
+   cheap 304 from the edge. A ?t= cache-buster would force a unique URL every
+   load — a guaranteed edge miss — so never add one here. */
 async function fetchJson(name) {
-  const resp = await fetch(`${DATA_BASE}/${name}?t=${Date.now()}`, { cache: "no-store" });
+  const resp = await fetch(`${DATA_BASE}/${name}`, { cache: "no-cache" });
   if (!resp.ok) throw new Error(`${name}: HTTP ${resp.status}`);
   return resp.json();
+}
+
+/* Stale-while-revalidate: paint instantly from the last-seen copy in
+   localStorage (first call per page load only), then fetch fresh and hand it
+   to onData again. onData(data, fromCache) must tolerate being called twice
+   and decide for itself whether a repaint is needed. localStorage failures
+   (private browsing, quota) degrade to plain network fetch. */
+const _swrPainted = new Set();
+
+async function fetchJsonCached(name, onData) {
+  const cacheKey = `s2cache:${name}`;
+  if (!_swrPainted.has(name)) {
+    _swrPainted.add(name);
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) onData(JSON.parse(cached), true);
+    } catch (e) { /* corrupt cache or storage unavailable — skip the fast paint */ }
+  }
+  const resp = await fetch(`${DATA_BASE}/${name}`, { cache: "no-cache" });
+  if (!resp.ok) throw new Error(`${name}: HTTP ${resp.status}`);
+  const body = await resp.text();
+  try { localStorage.setItem(cacheKey, body); } catch (e) { /* storage full/blocked */ }
+  onData(JSON.parse(body), false);
 }
 
 function fmtR(value) {

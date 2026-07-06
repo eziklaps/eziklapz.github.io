@@ -157,6 +157,9 @@ table.data td.t { font-variant-numeric: normal; }
   font-size: 12px; font-weight: 650;
   color: var(--good-text); border: 1px solid var(--good);
 }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* Opportunity score (0-100, services/scoring.py); hover for the breakdown. */
+.badge.score { color: var(--accent); border-color: var(--accent); cursor: help; }
 .compare { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .compare td, .compare th {
   padding: 3px 6px 3px 0; border-bottom: 1px solid var(--hairline);

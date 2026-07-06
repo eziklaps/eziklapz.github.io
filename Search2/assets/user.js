@@ -92,16 +92,78 @@ function flagChips(p) {
       el("span", { class: "flagchip" }, FLAG_LABELS[flag] || flag)));
 }
 
-function productCard(p) {
-  const img = el("img", {
-    src: p.image_url || p.ali_image_url || "",
-    alt: p.title, loading: "lazy",
+/* ---- image thumbnails ----
+   Both CDNs serve resized variants via URL convention (verified live):
+   Amazon  .../images/I/<id>.jpg → .../images/I/<id>._SX600_.jpg  (~86→30 KB)
+   Ali     .../kf/<id>.jpg       → <url>_480x480q75.jpg_.webp     (~88→26 KB)
+   Unrecognised shapes pass through untouched, and the onerror chain always
+   ends at the original URLs, so a CDN dropping the convention costs one
+   retried request, never a broken card. */
+
+const AMAZON_IMG_RE = /^(https:\/\/m\.media-amazon\.com\/images\/I\/[^./]+)\.(jpe?g|png|webp)$/i;
+const ALI_IMG_RE = /^https:\/\/ae-pic-a1\.aliexpress-media\.com\/kf\/[^_]+\.(jpe?g|png)$/i;
+
+function amazonThumb(url, px) {
+  const m = (url || "").match(AMAZON_IMG_RE);
+  return m ? `${m[1]}._SX${px}_.${m[2]}` : null;
+}
+
+function thumb(url) {
+  if (!url) return null;
+  const az = amazonThumb(url, 600);
+  if (az) return az;
+  if (ALI_IMG_RE.test(url)) return `${url}_480x480q75.jpg_.webp`;
+  return null;
+}
+
+/* Ordered URLs to try: resized primary → original primary → resized ali →
+   original ali. */
+function imageCandidates(p) {
+  const out = [];
+  for (const url of [p.image_url, p.ali_image_url]) {
+    if (!url) continue;
+    const t = thumb(url);
+    if (t) out.push(t);
+    out.push(url);
+  }
+  return out;
+}
+
+/* The first grid row paints eagerly (the LCP element is a product image);
+   everything below the fold stays lazy. */
+const EAGER_CARDS = 3;
+
+function productImage(p, index) {
+  const candidates = imageCandidates(p);
+  if (!candidates.length) return el("div", { class: "noimg" }, "no image");
+  let candidateIdx = 0;
+  const attrs = {
+    src: candidates[0],
+    alt: p.title, width: 600, height: 600, decoding: "async",
+    loading: index < EAGER_CARDS ? "eager" : "lazy",
     onerror: (ev) => {
       const node = ev.target;
-      if (p.ali_image_url && node.src !== p.ali_image_url) node.src = p.ali_image_url;
-      else node.replaceWith(el("div", { class: "noimg" }, "no image"));
+      candidateIdx += 1;
+      if (candidateIdx < candidates.length) {
+        node.removeAttribute("srcset");
+        node.removeAttribute("sizes");
+        node.src = candidates[candidateIdx];
+      } else {
+        node.replaceWith(el("div", { class: "noimg" }, "no image"));
+      }
     },
-  });
+  };
+  if (index < EAGER_CARDS) attrs.fetchpriority = "high";
+  const azSmall = amazonThumb(p.image_url, 300);
+  if (azSmall && candidates[0] === amazonThumb(p.image_url, 600)) {
+    attrs.srcset = `${azSmall} 300w, ${candidates[0]} 600w`;
+    attrs.sizes = "(max-width: 640px) 90vw, 330px";
+  }
+  return el("img", attrs);
+}
+
+function productCard(p, index) {
+  const img = productImage(p, index);
 
   const duty = p.import_percentage != null
     ? `${p.import_percentage}%${p.is_fallback_duty ? " (fallback)" : ""}` : "—";
@@ -125,9 +187,16 @@ function productCard(p) {
   return el("div", { class: "product" },
     el("div", { class: "imgbox" }, img),
     el("div", { class: "body" },
-      el("div", {},
+      el("div", { class: "badges" },
         el("span", { class: "badge" },
-          `${fmtR(p.margin_total)} · ${p.margin_percent ?? "—"}%`)),
+          `${fmtR(p.margin_total)} · ${p.margin_percent ?? "—"}%`),
+        p.opportunity_score != null
+          ? el("span", { class: "badge score", title: scoreTooltip(p) },
+              `⚡ ${p.opportunity_score}`)
+          : null,
+        p.score_category === "sole_seller_candidate"
+          ? el("span", { class: "flagchip" }, "🥇 sole-seller candidate")
+          : null),
       el("h3", {}, p.title),
       flagChips(p),
       compare,
@@ -140,6 +209,19 @@ function productCard(p) {
         onclick: () => orderNow(p),
       }, "Order now"),
     ));
+}
+
+/* Hover breakdown for the opportunity-score badge: the five component
+   values (— = signal unavailable, lowering confidence instead of score). */
+function scoreTooltip(p) {
+  const c = p.score_components || {};
+  const bits = ["margin", "demand", "moat", "stability", "quality"]
+    .map((k) => `${k} ${c[k] == null ? "—" : c[k]}`);
+  if (p.score_confidence != null) bits.push(`confidence ${p.score_confidence}`);
+  if (c.quality_penalties && c.quality_penalties.length) {
+    bits.push(`penalties: ${c.quality_penalties.join(", ")}`);
+  }
+  return bits.join(" · ");
 }
 
 function orderNow(p) {
@@ -160,21 +242,40 @@ function orderNow(p) {
   dialog.showModal();
 }
 
-async function load() {
-  const data = await fetchJson("user.json");
+let renderedProductsKey = null;
+
+/* Called up to twice per load (cached copy, then fresh) and again on every
+   poll tick. The meta line always updates; the grid only rebuilds when the
+   product content actually changed — the hourly force-republish bumps
+   generated_at without changing content, and rebuilding re-decodes every
+   image for nothing. */
+function render(data, fromCache) {
   updateStaleness(document.getElementById("stale"), data.generated_at, 24 * 60);
   document.getElementById("meta").textContent =
     `${data.products.length} products · updated ${fmtAgo(data.generated_at)}`;
+  const key = JSON.stringify(data.products);
+  if (key === renderedProductsKey) return;
+  renderedProductsKey = key;
   const grid = document.getElementById("products");
   grid.replaceChildren();
   if (!data.products.length) {
     grid.append(el("p", {}, "No winning products yet — the pipeline is still hunting."));
     return;
   }
-  for (const p of data.products) grid.append(productCard(p));
+  data.products.forEach((p, i) => grid.append(productCard(p, i)));
+}
+
+function load() {
+  return fetchJsonCached("user.json", render);
 }
 
 load().catch((e) => {
-  document.getElementById("meta").textContent = `Could not load data: ${e.message}`;
+  /* If the cached copy already painted, a failed refresh is not worth
+     replacing the page header with an error. */
+  if (renderedProductsKey === null) {
+    document.getElementById("meta").textContent = `Could not load data: ${e.message}`;
+  } else {
+    console.warn(e);
+  }
 });
 setInterval(() => load().catch(console.warn), REFRESH_MS);
