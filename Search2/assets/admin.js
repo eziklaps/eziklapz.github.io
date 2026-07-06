@@ -308,6 +308,22 @@ function ordersPanel(data) {
     : el("div", { class: "chip neutral" }, el("span", { class: "dot" }),
         "no order intents yet"));
 
+  // Outstanding payments: placed, not known paid, no tracking yet. Payment
+  // is deliberately manual — AliExpress's bulk "Pay all" on My Orders.
+  const out = summary.outstanding || {};
+  body.append(el("div", { style: "margin-top:10px" },
+    out.count
+      ? el("span", { class: "chip warning", style: "margin-right:10px" },
+          el("span", { class: "dot" }),
+          `${out.count} order${out.count > 1 ? "s" : ""} awaiting payment — ${fmtR(out.total_rand)}`)
+      : el("span", { class: "chip good", style: "margin-right:10px" },
+          el("span", { class: "dot" }), "no payments outstanding"),
+    el("a", {
+      class: "btn ghost",
+      href: "https://www.aliexpress.com/p/order/index.html?spm=a2g0o.order_list",
+      target: "_blank", rel: "noopener",
+    }, "💳 Pay on AliExpress ↗")));
+
   if ((summary.recent || []).length) {
     const table = el("table", { class: "data" },
       el("tr", {}, el("th", {}, "intent"), el("th", {}, "asin"),
