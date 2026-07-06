@@ -168,6 +168,9 @@ table.data td.t { font-variant-numeric: normal; }
 .compare th { text-align: left; color: var(--muted); font-weight: 500; }
 .product .links { display: flex; gap: 12px; font-size: 13px; margin-top: auto; }
 .order { width: 100%; }
+/* in-flight order intent state shown in place of the Order button */
+.orderstate { margin-top: 4px; }
+.orderstate .meta, .product .meta { color: var(--ink-2); font-size: 12px; margin-top: 4px; }
 
 /* history sparklines: series line in the de-emphasis hue, current segment +
    surface-ringed end-dot in the accent; values wear text tokens, direction

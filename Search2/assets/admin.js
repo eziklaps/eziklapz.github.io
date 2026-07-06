@@ -1,24 +1,8 @@
-/* Admin dashboard: fetch admin.enc, decrypt with WebCrypto (PBKDF2 +
-   AES-256-GCM — envelope produced by funnel/publisher.py), render. The
-   passphrase is remembered in localStorage; a wrong one fails GCM auth,
-   clears the stored value and re-prompts. */
+/* Admin dashboard: fetch admin.enc, decrypt (decryptEnvelope in common.js),
+   render. The passphrase is remembered in localStorage; a wrong one fails
+   GCM auth, clears the stored value and re-prompts. */
 
-const PASS_KEY = "s2pass";
 const REFRESH_MS = 60_000;
-
-const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-
-async function decryptEnvelope(envelope, passphrase) {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
-  const key = await crypto.subtle.deriveKey(
-    { name: "PBKDF2", hash: "SHA-256", salt: b64(envelope.salt),
-      iterations: envelope.iterations },
-    keyMaterial, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-  const plain = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: b64(envelope.nonce) }, key, b64(envelope.ciphertext));
-  return JSON.parse(new TextDecoder().decode(plain));
-}
 
 const LANE_CHIP = {
   running: "good", idle: "neutral", done: "good", paused: "warning",
@@ -88,6 +72,9 @@ function render(data) {
 
   // --- remote control ---
   root.append(controlsPanel(data));
+
+  // --- ordering ---
+  root.append(ordersPanel(data));
 
   // --- funnel backlog bars ---
   const depths = Object.entries(data.feed_depths || {});
@@ -292,6 +279,84 @@ function controlsPanel(data) {
     el("div", { class: "scroll-x", style: "margin-top:10px" }, table),
     status);
   return panel("Remote control", body);
+}
+
+/* Ordering: intent states from the snapshot + the remote kill switch.
+   The kill switch rides commands.json (ordering.enabled=false); the .env
+   master switch ORDERING_ENABLED on the pipeline machine must ALSO be on
+   for anything to be placed — this button can only ever make it safer. */
+const ORDER_STATE_CHIP = {
+  pending: "neutral", verified: "good", placing: "warning", placed: "good",
+  rejected: "neutral", failed: "serious", needs_review: "critical",
+};
+
+function ordersPanel(data) {
+  const body = el("div", {});
+  const status = el("div", { class: "hint", style: "margin-top:8px" });
+  const summary = data.orders || {};
+  const counts = summary.counts || {};
+
+  const chips = el("div", {});
+  for (const [state, count] of Object.entries(counts)) {
+    chips.append(el("span", {
+      class: `chip ${ORDER_STATE_CHIP[state] || "neutral"}`,
+      style: "margin-right:8px",
+    }, el("span", { class: "dot" }), `${state}: ${count}`));
+  }
+  body.append(Object.keys(counts).length
+    ? chips
+    : el("div", { class: "chip neutral" }, el("span", { class: "dot" }),
+        "no order intents yet"));
+
+  if ((summary.recent || []).length) {
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "intent"), el("th", {}, "asin"),
+         el("th", {}, "state"), el("th", {}, "qty"), el("th", {}, "cost"),
+         el("th", {}, "when"), el("th", {}, "last note")));
+    for (const o of summary.recent) {
+      table.append(el("tr", {},
+        el("td", { class: "t" }, o.id),
+        el("td", { class: "t" }, o.asin ?? "—"),
+        el("td", { class: "t" }, (o.state ?? "?") +
+          (o.ae_order_ids?.length ? ` (AE ${o.ae_order_ids.join(", ")})` : "")),
+        el("td", {}, fmtNum(o.quantity)),
+        el("td", {}, o.order_cost != null ? fmtR(o.order_cost) : "—"),
+        el("td", { class: "t" }, fmtAgo(o.received_at)),
+        el("td", { class: "t" }, o.note ?? "")));
+    }
+    body.append(el("div", { class: "scroll-x", style: "margin-top:10px" }, table));
+  }
+
+  if (localStorage.getItem(PAT_KEY)) {
+    async function setKill(enabled) {
+      const label = enabled ? "enable ordering" : "KILL ordering";
+      status.textContent = `${label}…`;
+      try {
+        await mutateCommands((doc) => {
+          doc.ordering = { ...(doc.ordering || {}), enabled };
+        }, `Dashboard: ${label}`);
+        status.textContent = enabled
+          ? "Ordering enabled remotely — placement still needs " +
+            "ORDERING_ENABLED=1 in .env on the pipeline machine."
+          : "Kill switch tripped — the pipeline stops placing orders " +
+            "within ~30s. Already-placed orders are unaffected.";
+      } catch (e) {
+        status.textContent = `${label} failed: ${e.message}`;
+        if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+      }
+    }
+    body.append(el("div", { style: "margin-top:12px" },
+      el("button", { class: "btn", onclick: () => setKill(false) },
+        "🛑 Kill switch — stop all ordering"),
+      " ",
+      el("button", { class: "btn ghost", onclick: () => setKill(true) },
+        "Re-enable ordering")));
+  } else {
+    body.append(el("p", { class: "hint", style: "margin-top:10px" },
+      "Paste the GitHub token under Remote control to use the kill switch."));
+  }
+  body.append(status);
+  return panel("Ordering", body);
 }
 
 function fmtDur(seconds) {

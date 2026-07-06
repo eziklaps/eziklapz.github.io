@@ -1,7 +1,9 @@
-/* Product showcase: fetch user.json, render the winners as cards with the
-   full Amazon-vs-AliExpress comparison and an Order-now stub (real ordering
-   via aliexpress.ds.order.create comes later — the button carries the ids
-   it will need). */
+/* Product showcase + order desk: fetch user.enc, decrypt with the shared
+   passphrase (common.js), render winners as cards. Order-now is REAL:
+   it commits an order intent to commands.json (GitHub PAT required) and the
+   pipeline's orders stage verifies price/freight/margin, then places via
+   aliexpress.ds.order.create. Deep auth on purpose — passphrase to see the
+   page, PAT to write, and a typed ORDER confirmation per intent. */
 
 const REFRESH_MS = 5 * 60_000;
 
@@ -204,11 +206,37 @@ function productCard(p, index) {
       el("div", { class: "links" },
         p.amazon_url ? el("a", { href: p.amazon_url, target: "_blank", rel: "noopener" }, "Amazon ↗") : null,
         p.aliexpress_url ? el("a", { href: p.aliexpress_url, target: "_blank", rel: "noopener" }, "AliExpress ↗") : null),
-      el("button", {
-        class: "btn order", "data-ali-id": p.ali_id ?? "", "data-sku-id": p.sku_id ?? "",
-        onclick: () => orderNow(p),
-      }, "Order now"),
+      orderArea(p),
     ));
+}
+
+/* Order button or, when an intent is already in flight for this ASIN, its
+   state (so a second click can't double-order). rejected/failed free the
+   button again — with the reason on display. */
+const ORDER_STATE_LABEL = {
+  pending: "⏳ order sent — awaiting verification",
+  verified: "✅ verified — placement queued",
+  placing: "🛒 placing on AliExpress…",
+  placed: "📦 ordered",
+  needs_review: "🚨 needs review — see admin page",
+};
+
+function orderArea(p) {
+  const o = p.order;
+  if (o && ORDER_STATE_LABEL[o.state]) {
+    return el("div", { class: "orderstate" },
+      el("span", { class: "flagchip" }, ORDER_STATE_LABEL[o.state]),
+      o.state === "placed" && o.ae_order_ids?.length
+        ? el("div", { class: "meta" },
+            `AliExpress order ${o.ae_order_ids.join(", ")} — pay on aliexpress.com if not auto-paid`)
+        : null);
+  }
+  return el("div", {},
+    o ? el("div", { class: "meta", style: "margin-bottom:6px" },
+          `↩ previous intent ${o.state}${o.note ? `: ${o.note}` : ""}`)
+      : null,
+    el("button", { class: "btn order", onclick: () => orderNow(p) },
+      o ? "Order again" : "Order now"));
 }
 
 /* Hover breakdown for the opportunity-score badge: the five component
@@ -226,19 +254,113 @@ function scoreTooltip(p) {
 
 function orderNow(p) {
   const dialog = document.getElementById("order-modal");
+
+  if (!p.ali_id || !p.sku_id) {
+    dialog.replaceChildren(
+      el("h3", {}, "Can't order this one"),
+      el("p", { class: "meta" },
+        "No matched AliExpress SKU on record — the pipeline can only order " +
+        "products it has SKU-matched."),
+      el("button", { class: "btn ghost", onclick: () => dialog.close() }, "Close"));
+    dialog.showModal();
+    return;
+  }
+
+  // Write credential first: intents are commits to commands.json.
+  if (!localStorage.getItem(PAT_KEY)) {
+    const patInput = el("input", {
+      type: "password", placeholder: "Fine-grained GitHub token (contents R/W)",
+      style: "width:100%;padding:8px 10px;margin:8px 0;border:1px solid var(--hairline);" +
+             "border-radius:8px;background:var(--surface);color:var(--ink);",
+    });
+    dialog.replaceChildren(
+      el("h3", {}, "Ordering needs the GitHub token"),
+      el("p", { class: "meta" },
+        "Order intents are committed to commands.json on the data branch. " +
+        "Paste the same fine-grained token the admin page uses (contents " +
+        "read/write on the site repo only). Stored in this browser only."),
+      patInput,
+      el("button", {
+        class: "btn", onclick: () => {
+          if (patInput.value.trim()) {
+            localStorage.setItem(PAT_KEY, patInput.value.trim());
+            dialog.close();
+            orderNow(p);
+          }
+        },
+      }, "Save token"),
+      " ",
+      el("button", { class: "btn ghost", onclick: () => dialog.close() }, "Cancel"));
+    dialog.showModal();
+    return;
+  }
+
+  const unitCost = p.sku_price ?? p.ali_price_used;
+  const qtySelect = el("select", {
+    style: "padding:8px 10px;border:1px solid var(--hairline);border-radius:8px;" +
+           "background:var(--surface);color:var(--ink);",
+  }, ...[1, 2, 3, 4, 5].map((n) => el("option", { value: n }, `${n}`)));
+  const confirmInput = el("input", {
+    type: "text", placeholder: "Type ORDER to arm the button",
+    autocomplete: "off", autocapitalize: "characters", spellcheck: "false",
+    style: "width:100%;padding:8px 10px;margin-top:8px;border:1px solid var(--hairline);" +
+           "border-radius:8px;background:var(--surface);color:var(--ink);",
+  });
+  const status = el("p", { class: "meta" }, "");
+  const placeBtn = el("button", { class: "btn", disabled: "" }, "Commit order intent");
+  confirmInput.addEventListener("input", () => {
+    if (confirmInput.value.trim() === "ORDER") placeBtn.removeAttribute("disabled");
+    else placeBtn.setAttribute("disabled", "");
+  });
+
+  placeBtn.addEventListener("click", async () => {
+    placeBtn.setAttribute("disabled", "");
+    confirmInput.setAttribute("disabled", "");
+    status.textContent = "Committing order intent…";
+    const intent = {
+      id: `web-${p.asin}-${Date.now()}`,
+      asin: p.asin, ali_id: p.ali_id, sku_id: p.sku_id,
+      quantity: Number(qtySelect.value), source: "manual",
+      requested_at: new Date().toISOString(),
+    };
+    try {
+      await mutateCommands((doc) => {
+        // Prune intents the pipeline sank long ago; the Mongo intent is
+        // the durable record, commands.json is just the wire.
+        doc.orders = (doc.orders || []).filter((o) =>
+          o.requested_at && Date.now() - new Date(o.requested_at) < 7 * 864e5);
+        doc.orders.push(intent);
+      }, `Dashboard: order ${p.asin} x${intent.quantity}`);
+      status.textContent =
+        "✅ Intent committed. The pipeline re-verifies price, freight, " +
+        "restrictions and margin, then places the order (within ~30s while " +
+        "a run or serve is active). This page will show the state on its " +
+        "next refresh.";
+      placeBtn.replaceWith(el("button", {
+        class: "btn ghost", onclick: () => dialog.close() }, "Done"));
+    } catch (e) {
+      status.textContent = `Failed: ${e.message}`;
+      if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+      confirmInput.removeAttribute("disabled");
+    }
+  });
+
   dialog.replaceChildren(
-    el("h3", {}, "Ordering is coming soon"),
+    el("h3", {}, "Order from AliExpress"),
+    el("p", { class: "meta" }, p.title),
     el("p", { class: "meta" },
-      "One-click ordering through the AliExpress Dropship API " +
-      "(aliexpress.ds.order.create) is on the roadmap. For now, order manually:"),
+      `item ${p.ali_id} · SKU ${p.sku_id} · ~${fmtR(unitCost)}/unit + freight ` +
+      `(re-verified at order time)`),
+    el("div", { style: "margin:8px 0" }, "Quantity: ", qtySelect),
     el("p", { class: "meta" },
-      `item ${p.ali_id ?? "?"}${p.sku_id ? ` · SKU ${p.sku_id}` : ""}`),
-    p.aliexpress_url
-      ? el("p", {}, el("a", { href: p.aliexpress_url, target: "_blank", rel: "noopener" },
-          "Open the AliExpress listing ↗"))
-      : null,
-    el("button", { class: "btn ghost", onclick: () => dialog.close() }, "Close"),
-  );
+      "The pipeline only places this if it still clears the margin floor, " +
+      "stock, restrictions and the daily caps — and payment is completed " +
+      "on aliexpress.com afterwards."),
+    confirmInput,
+    el("div", { style: "margin-top:10px" },
+      placeBtn, " ",
+      el("button", { class: "btn ghost", onclick: () => dialog.close() }, "Cancel")),
+    status);
   dialog.showModal();
 }
 
@@ -265,17 +387,68 @@ function render(data, fromCache) {
   data.products.forEach((p, i) => grid.append(productCard(p, i)));
 }
 
-function load() {
-  return fetchJsonCached("user.json", render);
+/* ---- boot: passphrase gate over user.enc ----
+   Same gate as the admin page (shared passphrase + remembered value).
+   The SWR fast paint survives encryption: the cached ENVELOPE decrypts
+   locally, so a return visit with a remembered passphrase paints without
+   waiting on the network. */
+
+let passphrase = null;
+
+async function tryRender(envelope, fromCache) {
+  const data = await decryptEnvelope(envelope, passphrase); // throws on wrong pass
+  document.getElementById("gate").hidden = true;
+  document.getElementById("main").hidden = false;
+  render(data, fromCache);
 }
 
-load().catch((e) => {
-  /* If the cached copy already painted, a failed refresh is not worth
-     replacing the page header with an error. */
-  if (renderedProductsKey === null) {
-    document.getElementById("meta").textContent = `Could not load data: ${e.message}`;
-  } else {
-    console.warn(e);
+function refresh() {
+  return fetchJsonCached("user.enc", (envelope, fromCache) => {
+    tryRender(envelope, fromCache).catch(console.warn);
+  });
+}
+
+async function boot() {
+  const gateError = document.getElementById("gate-error");
+  const input = document.getElementById("pass-input");
+
+  async function attempt(pass, remember) {
+    passphrase = pass;
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem("s2cache:user.enc")); } catch (e) {}
+    try {
+      if (cached) {
+        try {
+          await tryRender(cached, true);
+        } catch (e) {
+          if (e.name !== "OperationError") throw e;
+          // Cache from a rotated passphrase era — the fresh copy decides.
+          await tryRender(await fetchJson("user.enc"), false);
+        }
+      } else {
+        await tryRender(await fetchJson("user.enc"), false);
+      }
+    } catch (e) {
+      passphrase = null;
+      localStorage.removeItem(PASS_KEY);
+      gateError.textContent = e.name === "OperationError"
+        ? "Wrong passphrase." : `Could not load data: ${e.message}`;
+      return false;
+    }
+    if (remember) localStorage.setItem(PASS_KEY, pass);
+    refresh().catch(console.warn);            // fresh copy behind the paint
+    setInterval(() => refresh().catch(console.warn), REFRESH_MS);
+    return true;
   }
-});
-setInterval(() => load().catch(console.warn), REFRESH_MS);
+
+  document.getElementById("gate-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    gateError.textContent = "";
+    await attempt(input.value, true);
+  });
+
+  const stored = localStorage.getItem(PASS_KEY);
+  if (stored) await attempt(stored, false);
+}
+
+boot();

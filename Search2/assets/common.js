@@ -40,6 +40,28 @@ async function fetchJsonCached(name, onData) {
   onData(JSON.parse(body), false);
 }
 
+/* ---- passphrase-protected payloads (user.enc + admin.enc) ----
+   Envelope produced by funnel/publisher.py: PBKDF2-HMAC-SHA256 key
+   derivation + AES-256-GCM. A wrong passphrase fails GCM auth with an
+   OperationError. Both pages share the same passphrase (and the same
+   remembered value). */
+
+const PASS_KEY = "s2pass";
+
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+async function decryptEnvelope(envelope, passphrase) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", hash: "SHA-256", salt: b64(envelope.salt),
+      iterations: envelope.iterations },
+    keyMaterial, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: b64(envelope.nonce) }, key, b64(envelope.ciphertext));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
 function fmtR(value) {
   if (value === null || value === undefined || value === "") return "—";
   return "R " + Number(value).toLocaleString("en-ZA", { maximumFractionDigits: 2 });

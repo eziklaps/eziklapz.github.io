@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
   <title>Search2 — Product Finds</title>
   <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
   <link rel="preconnect" href="https://m.media-amazon.com">
@@ -13,16 +14,29 @@
 </head>
 <body>
   <div class="wrap">
-    <header class="page">
+    <div id="gate" class="gate">
       <h1>Product Finds</h1>
-      <span class="sub" id="meta">loading…</span>
-    </header>
-    <div id="stale" class="banner"></div>
-    <div id="products" class="products"></div>
-    <footer class="page">
-      Prices in ZAR · sourced from amazon.co.za and AliExpress ·
-      margins include SARS duties, import VAT and Amazon fees
-    </footer>
+      <p class="sub">This page is encrypted (it can place real orders). Enter the passphrase to decrypt it in your browser.</p>
+      <form id="gate-form">
+        <input id="pass-input" type="password" placeholder="Passphrase" autocomplete="current-password" autofocus>
+        <button type="submit" class="btn">Unlock</button>
+      </form>
+      <div id="gate-error" class="error"></div>
+    </div>
+
+    <div id="main" hidden>
+      <header class="page">
+        <h1>Product Finds</h1>
+        <span class="sub" id="meta">loading…</span>
+      </header>
+      <div id="stale" class="banner"></div>
+      <div id="products" class="products"></div>
+      <footer class="page">
+        Prices in ZAR · sourced from amazon.co.za and AliExpress ·
+        margins include SARS duties, import VAT and Amazon fees ·
+        <a href="../admin/">pipeline admin</a>
+      </footer>
+    </div>
   </div>
   <dialog id="order-modal" class="order-modal"></dialog>
 </body>
