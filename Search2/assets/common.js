@@ -7,14 +7,69 @@ const DATA_BASE =
   new URLSearchParams(location.search).get("dataBase") ||
   "https://raw.githubusercontent.com/eziklaps/eziklapz.github.io/data/Search2/data";
 
-/* "no-cache" (not "no-store"): raw.githubusercontent serves max-age=300 with
-   a strong ETag through a Fastly edge in Cape Town, so a revalidation is a
-   cheap 304 from the edge. A ?t= cache-buster would force a unique URL every
-   load — a guaranteed edge miss — so never add one here. */
-async function fetchJson(name) {
+/* ---- Cloudflare live layer (web/edge) ----
+   When S2_LIVE_BASE points at the deployed search2-live Worker, data is
+   fetched from /api/latest (no CDN staleness) and liveConnect() pushes
+   version stamps over a WebSocket so pages refresh within seconds of a
+   publish. Empty = everything below falls back to the legacy
+   raw.githubusercontent + polling behavior. ?liveBase=http://127.0.0.1:8787
+   overrides for local testing against `wrangler dev`. */
+const S2_LIVE_BASE = ""; // set to the Worker URL at cutover (see web/edge/README.md)
+const LIVE_BASE =
+  new URLSearchParams(location.search).get("liveBase") || S2_LIVE_BASE;
+
+/* "no-cache" (not "no-store") on the CDN path: raw.githubusercontent serves
+   max-age=300 with a strong ETag through a Fastly edge in Cape Town, so a
+   revalidation is a cheap 304 from the edge. A ?t= cache-buster would force
+   a unique URL every load — a guaranteed edge miss — so never add one here.
+   The live path is no-store: the Worker read is the freshness guarantee. */
+async function fetchText(name) {
+  if (LIVE_BASE) {
+    try {
+      const resp = await fetch(
+        `${LIVE_BASE}/api/latest/${encodeURIComponent(name)}`,
+        { cache: "no-store" });
+      if (resp.ok) return resp.text();
+    } catch (e) { /* live layer unreachable — the CDN copy still exists */ }
+  }
   const resp = await fetch(`${DATA_BASE}/${name}`, { cache: "no-cache" });
   if (!resp.ok) throw new Error(`${name}: HTTP ${resp.status}`);
-  return resp.json();
+  return resp.text();
+}
+
+async function fetchJson(name) {
+  return JSON.parse(await fetchText(name));
+}
+
+/* Live socket: onDirty(name) fires when the pipeline publishes fresh data.
+   Reconnects with capped jittered backoff; a 25s "ping" keeps NAT paths
+   open (auto-answered server-side without waking the hub). No-op when the
+   live layer is off, so pages can call this unconditionally. */
+function liveConnect(onDirty) {
+  if (!LIVE_BASE || typeof WebSocket === "undefined") return;
+  let delay = 1000;
+  const connect = () => {
+    let pingTimer = null;
+    const ws = new WebSocket(LIVE_BASE.replace(/^http/, "ws") + "/api/live");
+    ws.addEventListener("open", () => {
+      delay = 1000;
+      pingTimer = setInterval(() => {
+        try { ws.send("ping"); } catch (e) { /* mid-close race */ }
+      }, 25_000);
+    });
+    ws.addEventListener("message", (ev) => {
+      let msg = null;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; } // "pong"
+      if (msg.type === "data") onDirty(msg.name);
+    });
+    ws.addEventListener("close", () => {
+      clearInterval(pingTimer);
+      setTimeout(connect, delay + Math.random() * 1000);
+      delay = Math.min(delay * 2, 60_000);
+    });
+    ws.addEventListener("error", () => { try { ws.close(); } catch (e) {} });
+  };
+  connect();
 }
 
 /* Stale-while-revalidate: paint instantly from the last-seen copy in
@@ -33,9 +88,7 @@ async function fetchJsonCached(name, onData) {
       if (cached) onData(JSON.parse(cached), true);
     } catch (e) { /* corrupt cache or storage unavailable — skip the fast paint */ }
   }
-  const resp = await fetch(`${DATA_BASE}/${name}`, { cache: "no-cache" });
-  if (!resp.ok) throw new Error(`${name}: HTTP ${resp.status}`);
-  const body = await resp.text();
+  const body = await fetchText(name);
   try { localStorage.setItem(cacheKey, body); } catch (e) { /* storage full/blocked */ }
   onData(JSON.parse(body), false);
 }
@@ -97,14 +150,58 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
-/* ---- GitHub command bus (admin page only) ----
-   commands.json lives on the data branch; the admin page edits it through
-   the contents API with a fine-grained PAT (contents R/W on the site repo
-   only) the user pastes once. The pipeline polls the file and obeys. */
+/* ---- Command bus ----
+   Live mode (LIVE_BASE set): the doc lives in the Worker's Durable Object;
+   reads/writes are token-gated (ADMIN_TOKEN) with a version-CAS, and the
+   pipeline long-polls it — commands land in seconds. Legacy mode:
+   commands.json on the data branch, edited through the GitHub contents API
+   with a fine-grained PAT. Either secret occupies the same stored slot —
+   at cutover the user just pastes the admin token into the same prompt. */
 
 const GH = { owner: "eziklaps", repo: "eziklapz.github.io", branch: "data" };
 const GH_COMMANDS_PATH = "Search2/data/commands.json";
 const PAT_KEY = "s2pat";
+
+/* Prompt copy for whichever secret the current mode needs. */
+function tokenPromptCopy() {
+  return LIVE_BASE
+    ? { title: "needs the dashboard admin token",
+        hint: "Paste the live layer's ADMIN_TOKEN (set via wrangler secret). " +
+              "Stored in this browser only." }
+    : { title: "needs the GitHub token",
+        hint: "Paste the fine-grained token (contents read/write on the " +
+              "site repo only). Stored in this browser only." };
+}
+
+/* The live store starts empty; the first mutation builds the doc from the
+   same skeleton scripts/bootstrap_data_branch.py seeds. */
+function emptyCommandsDoc() {
+  return { version: 1, updated_at: null,
+           run: { desired: "running", start_requested_at: null,
+                  budget_minutes: null },
+           lanes: {}, orders: [] };
+}
+
+function liveHeaders() {
+  return { Authorization: `Bearer ${localStorage.getItem(PAT_KEY)}` };
+}
+
+async function liveGetCommands() {
+  const resp = await fetch(`${LIVE_BASE}/api/commands`,
+                           { headers: liveHeaders(), cache: "no-store" });
+  if (!resp.ok) throw new Error(`commands GET ${resp.status}`);
+  const body = await resp.json();
+  return { doc: body.doc || emptyCommandsDoc(), version: body.version || 0 };
+}
+
+async function livePutCommands(doc, baseVersion) {
+  const resp = await fetch(`${LIVE_BASE}/api/commands`, {
+    method: "PUT",
+    headers: { ...liveHeaders(), "content-type": "application/json" },
+    body: JSON.stringify({ doc, baseVersion }),
+  });
+  if (!resp.ok) throw new Error(`commands PUT ${resp.status}`);
+}
 
 function ghHeaders() {
   return {
@@ -135,17 +232,31 @@ async function ghPutCommands(doc, sha, message) {
   if (!resp.ok) throw new Error(`GitHub PUT ${resp.status}`);
 }
 
-/* Read-modify-write with one retry on a sha conflict (409/422). */
+/* Read-modify-write with one retry on a CAS conflict (409, or GitHub's
+   422 sha race in legacy mode). Callers' 401/403 token-reset checks work
+   in both modes — the thrown messages carry the status code either way. */
 async function mutateCommands(mutate, message) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { doc, sha } = await ghGetCommands();
-    mutate(doc);
-    doc.updated_at = new Date().toISOString();
-    try {
-      await ghPutCommands(doc, sha, message);
-      return doc;
-    } catch (e) {
-      if (attempt === 1 || !/409|422/.test(e.message)) throw e;
+    if (LIVE_BASE) {
+      const { doc, version } = await liveGetCommands();
+      mutate(doc);
+      doc.updated_at = new Date().toISOString();
+      try {
+        await livePutCommands(doc, version);
+        return doc;
+      } catch (e) {
+        if (attempt === 1 || !/409/.test(e.message)) throw e;
+      }
+    } else {
+      const { doc, sha } = await ghGetCommands();
+      mutate(doc);
+      doc.updated_at = new Date().toISOString();
+      try {
+        await ghPutCommands(doc, sha, message);
+        return doc;
+      } catch (e) {
+        if (attempt === 1 || !/409|422/.test(e.message)) throw e;
+      }
     }
   }
 }

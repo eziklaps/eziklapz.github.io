@@ -188,16 +188,18 @@ function controlsPanel(data) {
   const status = el("div", { class: "hint", style: "margin-top:8px" });
 
   if (!localStorage.getItem(PAT_KEY)) {
+    const copy = tokenPromptCopy();
     const input = el("input", {
-      type: "password", placeholder: "Fine-grained GitHub token (contents R/W)",
+      type: "password",
+      placeholder: LIVE_BASE ? "Dashboard admin token"
+                             : "Fine-grained GitHub token (contents R/W)",
       style: "width:100%;max-width:420px;padding:8px 10px;margin-right:8px;" +
              "border:1px solid var(--hairline);border-radius:8px;" +
              "background:var(--surface);color:var(--ink);",
     });
     body.append(
       el("p", { class: "hint" },
-        "Paste a fine-grained GitHub token (contents read/write on the site repo " +
-        "only) to control the pipeline from here. Stored in this browser only."),
+        `Remote control ${copy.title}. ${copy.hint}`),
       input,
       el("button", {
         class: "btn", onclick: () => {
@@ -435,6 +437,11 @@ async function boot() {
       setInterval(async () => {
         try { await loadAndRender(passphrase); } catch (e) { console.warn(e); }
       }, REFRESH_MS);
+      // Live layer (no-op when off): refresh the moment a publish lands.
+      liveConnect(async (name) => {
+        if (name !== "admin.enc") return;
+        try { await loadAndRender(passphrase); } catch (e) { console.warn(e); }
+      });
       return true;
     } catch (e) {
       localStorage.removeItem(PASS_KEY);

@@ -346,19 +346,20 @@ function orderNow(p) {
     return;
   }
 
-  // Write credential first: intents are commits to commands.json.
+  // Write credential first: intents are writes to the command bus.
   if (!localStorage.getItem(PAT_KEY)) {
+    const copy = tokenPromptCopy();
     const patInput = el("input", {
-      type: "password", placeholder: "Fine-grained GitHub token (contents R/W)",
+      type: "password",
+      placeholder: LIVE_BASE ? "Dashboard admin token"
+                             : "Fine-grained GitHub token (contents R/W)",
       style: "width:100%;padding:8px 10px;margin:8px 0;border:1px solid var(--hairline);" +
              "border-radius:8px;background:var(--surface);color:var(--ink);",
     });
     dialog.replaceChildren(
-      el("h3", {}, "Ordering needs the GitHub token"),
+      el("h3", {}, `Ordering ${copy.title}`),
       el("p", { class: "meta" },
-        "Order intents are committed to commands.json on the data branch. " +
-        "Paste the same fine-grained token the admin page uses (contents " +
-        "read/write on the site repo only). Stored in this browser only."),
+        `Order intents ride the pipeline's command bus. ${copy.hint}`),
       patInput,
       el("button", {
         class: "btn", onclick: () => {
@@ -518,6 +519,11 @@ async function boot() {
     if (remember) localStorage.setItem(PASS_KEY, pass);
     refresh().catch(console.warn);            // fresh copy behind the paint
     setInterval(() => refresh().catch(console.warn), REFRESH_MS);
+    // Live layer (no-op when off): a publish stamps user.enc and the page
+    // refreshes within seconds; the interval above stays as the fallback.
+    liveConnect((name) => {
+      if (name === "user.enc") refresh().catch(console.warn);
+    });
     return true;
   }
 
