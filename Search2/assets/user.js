@@ -255,8 +255,12 @@ function orderArea(p) {
             `AliExpress order ${o.ae_order_ids.join(", ")} — pay on aliexpress.com if not auto-paid`)
         : null,
       o.state === "placed"
-        ? el("button", { class: "btn order", style: "margin-top:8px",
-                         onclick: () => orderNow(p) }, "Order again")
+        ? el("div", { style: "margin-top:8px" },
+            el("button", { class: "btn order",
+                           onclick: () => orderNow(p) }, "Order again"),
+            " ",
+            el("button", { class: "btn ghost",
+                           onclick: () => markCancelled(p, o) }, "Mark cancelled"))
         : null);
   }
   return el("div", {},
@@ -265,6 +269,54 @@ function orderArea(p) {
       : null,
     el("button", { class: "btn order", onclick: () => orderNow(p) },
       o ? "Order again" : "Order now"));
+}
+
+/* Cancelled-on-the-website orders can't be auto-detected (the AliExpress
+   order-status endpoint is registration-gated for this app), so cancelling
+   is a manual claim: a cancel entry rides the same commands.json wire as
+   the intents, and the pipeline flips the intent to 'cancelled' when it
+   sinks it. This marks the dashboard only — it does NOT cancel the actual
+   AliExpress order. */
+function markCancelled(p, o) {
+  const dialog = document.getElementById("order-modal");
+  if (!localStorage.getItem(PAT_KEY)) {
+    orderNow(p); // the order flow collects the token first
+    return;
+  }
+  const status = el("p", { class: "meta" }, "");
+  const confirmBtn = el("button", { class: "btn" }, "Mark cancelled");
+  confirmBtn.addEventListener("click", async () => {
+    confirmBtn.setAttribute("disabled", "");
+    status.textContent = "Committing cancel claim…";
+    try {
+      await mutateCommands((doc) => {
+        doc.orders = (doc.orders || []).filter((x) =>
+          x.requested_at && Date.now() - new Date(x.requested_at) < 7 * 864e5);
+        doc.orders.push({ id: o.id, cancel: true,
+                          requested_at: new Date().toISOString() });
+      }, `Dashboard: mark ${o.id} cancelled`);
+      status.textContent = "✅ Claim committed — the intent flips to " +
+        "cancelled when the pipeline next syncs (within ~30s while a run " +
+        "or serve is active).";
+      confirmBtn.replaceWith(el("button", {
+        class: "btn ghost", onclick: () => dialog.close() }, "Done"));
+    } catch (e) {
+      status.textContent = `Failed: ${e.message}`;
+      if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+      confirmBtn.removeAttribute("disabled");
+    }
+  });
+  dialog.replaceChildren(
+    el("h3", {}, "Mark order cancelled"),
+    el("p", { class: "meta" },
+      `For orders you cancelled on aliexpress.com. Marks intent ${o.id} ` +
+      "(AliExpress order " + (o.ae_order_ids || []).join(", ") +
+      ") as cancelled on this dashboard and frees the Order button — it " +
+      "does not touch the AliExpress order itself."),
+    confirmBtn, " ",
+    el("button", { class: "btn ghost", onclick: () => dialog.close() }, "Close"),
+    status);
+  dialog.showModal();
 }
 
 /* Hover breakdown for the opportunity-score badge: the five component
