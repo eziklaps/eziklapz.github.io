@@ -212,7 +212,9 @@ function productCard(p, index) {
 
 /* Order button or, when an intent is already in flight for this ASIN, its
    state (so a second click can't double-order). rejected/failed free the
-   button again — with the reason on display. */
+   button again — with the reason on display. placed keeps its state chip
+   but offers "Order again" (restocking is deliberate; each click commits a
+   fresh intent id, and the pipeline re-verifies from scratch). */
 const ORDER_STATE_LABEL = {
   pending: "⏳ order sent — awaiting verification",
   verified: "✅ verified — placement queued",
@@ -229,6 +231,10 @@ function orderArea(p) {
       o.state === "placed" && o.ae_order_ids?.length
         ? el("div", { class: "meta" },
             `AliExpress order ${o.ae_order_ids.join(", ")} — pay on aliexpress.com if not auto-paid`)
+        : null,
+      o.state === "placed"
+        ? el("button", { class: "btn order", style: "margin-top:8px",
+                         onclick: () => orderNow(p) }, "Order again")
         : null);
   }
   return el("div", {},
