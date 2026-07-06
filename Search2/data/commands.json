@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated_at": "2026-07-06T16:04:02.682Z",
+ "updated_at": "2026-07-06T17:10:15.350Z",
  "run": {
   "desired": "running",
   "start_requested_at": "2026-07-06T16:04:02.682Z",
@@ -23,6 +23,15 @@
    "quantity": 1,
    "source": "manual",
    "requested_at": "2026-07-06T09:24:46.234Z"
+  },
+  {
+   "id": "web-B0GD1NRD1S-1783357814616",
+   "asin": "B0GD1NRD1S",
+   "ali_id": "1005007907724316",
+   "sku_id": "12000042795058007",
+   "quantity": 1,
+   "source": "manual",
+   "requested_at": "2026-07-06T17:10:14.616Z"
   }
  ]
 }
