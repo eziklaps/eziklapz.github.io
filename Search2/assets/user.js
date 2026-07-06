@@ -55,9 +55,11 @@ function trendBlock(p) {
   const hist = p.history || {};
   const rank = sparkline(hist.rank, { betterDown: true, label: "Sales rank" });
   const price = sparkline(hist.price, { label: "Price" });
-  if (!rank && !price) return null;
+  const sales = salesRow(p);
+  if (!rank && !price && !sales) return null;
 
   const rows = [];
+  if (sales) rows.push(sales);
   if (rank) {
     const d = p.rank_delta_24h;
     rows.push(el("div", { class: "row" },
@@ -78,6 +80,26 @@ function trendBlock(p) {
         min === max ? "" : `${fmtR(min)}–${fmtR(max)} seen`)));
   }
   return el("div", { class: "trend" }, ...rows);
+}
+
+/* Rank→sales estimate off the pipeline's self-calibrated ZA curve
+   (services/velocity.py) — an order-of-magnitude read, so the tooltip
+   carries the confidence and the measured sale-days behind it. */
+function salesRow(p) {
+  const est = p.est_units_month;
+  const events = p.sale_events_28d;
+  if (est == null && !events) return null;
+  const text = est != null
+    ? `≈${fmtNum(Math.round(est))}/mo`
+    : `${events} sale-day${events === 1 ? "" : "s"}/28d`;
+  const title = est != null
+    ? `estimated units/month from rank (confidence: ${p.velocity_confidence}); ` +
+      `${events || 0} sale-day${events === 1 ? "" : "s"} measured in 28d`
+    : `rank moved on ${events} day${events === 1 ? "" : "s"} in 28d — units sold`;
+  return el("div", { class: "row" },
+    el("span", { class: "tlabel" }, "Sales"),
+    el("span", {}, ""),
+    el("span", { class: "tval", title }, text));
 }
 
 /* Ledger event flags (icon + words, never color alone). */
