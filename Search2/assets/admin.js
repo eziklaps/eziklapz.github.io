@@ -83,6 +83,9 @@ function render(data) {
   // --- ordering ---
   root.append(ordersPanel(data));
 
+  // --- Seller Central to-dos (manual approvals only Andrew can click) ---
+  root.append(todosPanel(data));
+
   // --- funnel backlog bars ---
   const depths = Object.entries(data.feed_depths || {});
   if (depths.length) {
@@ -277,6 +280,7 @@ function controlsPanel(data) {
     ["margins", "margins — calculate margins"],
     ["score", "score — opportunity score"],
     ["re-embed", "re-embed — refresh old vectors at the new image size (paid)"],
+    ["takealot-match", "takealot-match — check winners against the Takealot catalog"],
   ];
   const selectStyle = "padding:8px 10px;margin-right:8px;" +
     "border:1px solid var(--hairline);border-radius:8px;" +
@@ -427,6 +431,85 @@ function ordersPanel(data) {
   }
   body.append(status);
   return panel("Ordering", body);
+}
+
+/* Seller Central to-dos: the two manual approval queues the pipeline can
+   prepare but never click through — per-productType GTIN exemptions and
+   per-ASIN "Apply to sell" links (captured by the restrictions gate, which
+   re-polls every 24h and unblocks granted ones on its own). */
+const GTIN_FORM_URL = "https://sellercentral.amazon.co.za/gtinx";
+const APPS_DASHBOARD_URL = "https://sellercentral.amazon.co.za/hz/myqdashboard";
+
+function todosPanel(data) {
+  const todos = data.seller_todos || {};
+  const exemptions = todos.exemptions || [];
+  const restricted = todos.restricted || [];
+  const body = el("div", {});
+
+  if (!exemptions.length && !restricted.length) {
+    body.append(el("div", { class: "chip good" }, el("span", { class: "dot" }),
+      "nothing awaiting manual approval"));
+  }
+
+  for (const ex of exemptions) {
+    body.append(el("div", { style: "margin-bottom:8px" },
+      el("span", { class: "chip warning", style: "margin-right:10px" },
+        el("span", { class: "dot" }),
+        `GTIN exemption needed: ${ex.product_type} — ${ex.count} intent${ex.count > 1 ? "s" : ""}`),
+      el("span", { class: "t", style: "margin-right:10px" },
+        (ex.asins || []).join(", ")),
+      el("a", {
+        class: "btn ghost", href: GTIN_FORM_URL,
+        target: "_blank", rel: "noopener",
+      }, "Apply for exemption ↗")));
+  }
+  if (exemptions.length) {
+    body.append(el("div", { class: "hint" },
+      "Brand “Generic” + the category; needs 2–9 photos of the PHYSICAL " +
+      "product showing no branding (supplier photos/mockups fail), ~48h review. " +
+      "After approval run ", el("code", {}, "python scripts/listing_admin.py grant <TYPE>"),
+      " on the pipeline machine."));
+  }
+
+  if (restricted.length) {
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "asin"), el("th", {}, "score"),
+         el("th", {}, "restriction"), el("th", {}, ""),
+         el("th", {}, "checked")));
+    for (const r of restricted) {
+      const link = (r.links || [])[0];
+      table.append(el("tr", {},
+        el("td", { class: "t" }, el("a", {
+          href: `https://www.amazon.co.za/dp/${r.asin}`,
+          target: "_blank", rel: "noopener",
+        }, r.asin)),
+        el("td", {}, r.score != null ? String(Math.round(r.score)) : "—"),
+        el("td", { class: "t" },
+          (r.reason || "").replace(/^APPROVAL_REQUIRED:\s*/, "")),
+        el("td", { class: "t" }, link
+          ? el("a", { class: "btn ghost", href: link.url,
+                      target: "_blank", rel: "noopener" }, "Apply ↗")
+          : "no form (not accepting applications)"),
+        el("td", { class: "t" }, fmtAgo(r.checked_at))));
+    }
+    body.append(el("div", { class: "scroll-x", style: "margin-top:10px" }, table));
+    body.append(el("div", { class: "hint" },
+      "Auto-granted ones cost one click; invoice-walled ones can be skipped " +
+      "— the 24h re-poll unblocks and requeues granted ASINs by itself."));
+  }
+
+  const footer = el("div", { style: "margin-top:10px" });
+  for (const g of todos.granted || []) {
+    footer.append(el("span", { class: "chip good", style: "margin-right:8px" },
+      el("span", { class: "dot" }), `exemption granted: ${g}`));
+  }
+  footer.append(el("a", {
+    class: "btn ghost", href: APPS_DASHBOARD_URL,
+    target: "_blank", rel: "noopener",
+  }, "All selling applications ↗"));
+  body.append(footer);
+
+  return panel("Seller Central to-dos", body);
 }
 
 /* Compact tracking cell: newest event + age, full detail on hover.

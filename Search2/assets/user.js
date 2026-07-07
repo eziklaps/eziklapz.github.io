@@ -227,10 +227,31 @@ function productCard(p, index) {
       trendBlock(p),
       el("div", { class: "links" },
         p.amazon_url ? el("a", { href: p.amazon_url, target: "_blank", rel: "noopener" }, "Amazon ↗") : null,
-        p.aliexpress_url ? el("a", { href: p.aliexpress_url, target: "_blank", rel: "noopener" }, "AliExpress ↗") : null),
+        p.aliexpress_url ? el("a", { href: p.aliexpress_url, target: "_blank", rel: "noopener" }, "AliExpress ↗") : null,
+        takealotMatchLink(p)),
       orderArea(p),
       takealotArea(p),
     ));
+}
+
+/* Cross-channel price check from the takealot-match stage: a link with the
+   competing Takealot price when the catalog has the product, a quiet "not
+   on Takealot" (= open field there) once checked, nothing before then. */
+function takealotMatchLink(p) {
+  const m = p.takealot_match;
+  if (!m) return null;
+  if (!m.found) {
+    return el("span", { class: "meta", title: `checked ${fmtAgo(m.checked_at)}` },
+      "not on Takealot");
+  }
+  const bits = [];
+  if (m.offer_count) bits.push(`${m.offer_count} offer${m.offer_count > 1 ? "s" : ""}`);
+  if (m.seller) bits.push(`buybox: ${m.seller}`);
+  if (m.score != null) bits.push(`match score ${m.score}`);
+  bits.push(`checked ${fmtAgo(m.checked_at)}`);
+  return el("a", {
+    href: m.url, target: "_blank", rel: "noopener", title: bits.join(" · "),
+  }, `Takealot ${m.price_min != null ? fmtR(m.price_min) : ""} ↗`);
 }
 
 /* Takealot channel chip — read-only state from the takealot-listings
