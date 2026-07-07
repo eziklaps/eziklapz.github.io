@@ -229,7 +229,39 @@ function productCard(p, index) {
         p.amazon_url ? el("a", { href: p.amazon_url, target: "_blank", rel: "noopener" }, "Amazon ↗") : null,
         p.aliexpress_url ? el("a", { href: p.aliexpress_url, target: "_blank", rel: "noopener" }, "AliExpress ↗") : null),
       orderArea(p),
+      takealotArea(p),
     ));
+}
+
+/* Takealot channel chip — read-only state from the takealot-listings
+   stage (intents are queued via scripts/listing_admin.py takealot). */
+const TAKEALOT_STATE_LABEL = {
+  pending: "⏳ Takealot: queued — next pass prices it",
+  loadsheet: "📄 Takealot: on the loadsheet — upload + catalog review pending",
+  offer_ready: "✅ Takealot: priced — offer POST queued",
+  submitting: "📤 Takealot: posting offer…",
+  submitted: "📤 Takealot: offer accepted — awaiting visibility",
+  live: "🟢 Takealot: LIVE",
+  fix_required: "🛠️ Takealot: rejected — needs a fix",
+  needs_review: "🚨 Takealot: needs review",
+  rejected: "⛔ Takealot: rejected",
+};
+
+function takealotArea(p) {
+  const t = p.takealot;
+  if (!t) return null;
+  return el("div", { class: "orderstate" },
+    el("span", { class: "flagchip" },
+      TAKEALOT_STATE_LABEL[t.state] || `Takealot: ${t.state}`),
+    t.list_price != null
+      ? el("div", { class: "meta" },
+          `listed at ${fmtR(t.list_price)}`
+          + (t.margin_percent != null ? ` · ~${t.margin_percent}% margin` : ""))
+      : null,
+    t.note && (t.state === "fix_required" || t.state === "rejected"
+               || t.state === "needs_review")
+      ? el("div", { class: "meta" }, t.note)
+      : null);
 }
 
 /* Order button or, when an intent is already in flight for this ASIN, its
@@ -481,19 +513,35 @@ const TAB_STATE_RANK = {
   placed: 0, placing: 1, verified: 2, pending: 3, needs_review: 4,
 };
 
+/* Takealot tab: live first, then the in-flight states in pipeline order. */
+const TAKEALOT_STATE_RANK = {
+  live: 0, submitted: 1, submitting: 2, offer_ready: 3, loadsheet: 4,
+  pending: 5, needs_review: 6, fix_required: 7, rejected: 8,
+};
+
 function tabProducts(products) {
-  if (activeTab !== "ordered") return products;
-  return products
-    .filter((p) => p.order)
-    .slice()
-    .sort((a, b) => (TAB_STATE_RANK[a.order.state] ?? 9)
-                    - (TAB_STATE_RANK[b.order.state] ?? 9));
+  if (activeTab === "ordered") {
+    return products
+      .filter((p) => p.order)
+      .slice()
+      .sort((a, b) => (TAB_STATE_RANK[a.order.state] ?? 9)
+                      - (TAB_STATE_RANK[b.order.state] ?? 9));
+  }
+  if (activeTab === "takealot") {
+    return products
+      .filter((p) => p.takealot)
+      .slice()
+      .sort((a, b) => (TAKEALOT_STATE_RANK[a.takealot.state] ?? 9)
+                      - (TAKEALOT_STATE_RANK[b.takealot.state] ?? 9));
+  }
+  return products;
 }
 
 function renderTabs() {
   const nav = document.getElementById("tabs");
   if (!nav) return;
   const ordered = lastProducts.filter((p) => p.order).length;
+  const takealot = lastProducts.filter((p) => p.takealot).length;
   nav.hidden = false;
   const tab = (id, label) => el("button", {
     class: `tab${activeTab === id ? " active" : ""}`,
@@ -506,7 +554,8 @@ function renderTabs() {
   }, label);
   nav.replaceChildren(
     tab("all", `All products (${lastProducts.length})`),
-    tab("ordered", `Ordered (${ordered})`));
+    tab("ordered", `Ordered (${ordered})`),
+    tab("takealot", `Takealot (${takealot})`));
 }
 
 function renderGrid() {
@@ -516,6 +565,9 @@ function renderGrid() {
   if (!list.length) {
     grid.append(el("p", {}, activeTab === "ordered"
       ? "Nothing ordered yet — every product card has an Order button."
+      : activeTab === "takealot"
+      ? "Nothing queued for Takealot yet — queue winners with " +
+        "scripts/listing_admin.py takealot <ASIN>."
       : "No winning products yet — the pipeline is still hunting."));
     return;
   }
