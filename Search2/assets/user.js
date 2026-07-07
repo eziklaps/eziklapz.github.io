@@ -247,7 +247,8 @@ function takealotMatchLink(p) {
   const bits = [];
   if (m.offer_count) bits.push(`${m.offer_count} offer${m.offer_count > 1 ? "s" : ""}`);
   if (m.seller) bits.push(`buybox: ${m.seller}`);
-  if (m.score != null) bits.push(`match score ${m.score}`);
+  if (m.cosine != null) bits.push(`image match ${m.cosine}`);
+  else if (m.score != null) bits.push(`match score ${m.score}`);
   bits.push(`checked ${fmtAgo(m.checked_at)}`);
   return el("a", {
     href: m.url, target: "_blank", rel: "noopener", title: bits.join(" · "),
