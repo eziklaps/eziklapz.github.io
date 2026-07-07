@@ -276,6 +276,7 @@ function controlsPanel(data) {
     ["gate", "gate — provisional margin gate"],
     ["margins", "margins — calculate margins"],
     ["score", "score — opportunity score"],
+    ["re-embed", "re-embed — refresh old vectors at the new image size (paid)"],
   ];
   const selectStyle = "padding:8px 10px;margin-right:8px;" +
     "border:1px solid var(--hairline);border-radius:8px;" +
