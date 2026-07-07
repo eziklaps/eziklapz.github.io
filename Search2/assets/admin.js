@@ -128,7 +128,7 @@ function render(data) {
   // --- keywords ---
   const kw = data.keywords || {};
   const kwBody = el("div", {});
-  for (const market of ["amazon", "aliexpress"]) {
+  for (const market of ["amazon", "aliexpress", "takealot"]) {
     const stats = kw[market] || {};
     kwBody.append(el("div", { class: "chip neutral", style: "margin-right:16px" },
       el("span", { class: "dot" }),
@@ -281,6 +281,8 @@ function controlsPanel(data) {
     ["score", "score — opportunity score"],
     ["re-embed", "re-embed — refresh old vectors at the new image size (paid)"],
     ["takealot-match", "takealot-match — check winners against the Takealot catalog"],
+    ["pull-takealot", "pull-takealot — Takealot demand discovery (keyword search intake)"],
+    ["takealot-enrich", "takealot-enrich — offer stack + barcode for Takealot winners"],
   ];
   const selectStyle = "padding:8px 10px;margin-right:8px;" +
     "border:1px solid var(--hairline);border-radius:8px;" +

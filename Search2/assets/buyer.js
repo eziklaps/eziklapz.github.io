@@ -1,9 +1,11 @@
-/* Product showcase + order desk: fetch user.enc, decrypt with the shared
-   passphrase (common.js), render winners as cards. Order-now is REAL:
-   it commits an order intent to commands.json (GitHub PAT required) and the
+/* Buyer page: sourcing & ordering across BOTH demand channels.
+   Fetches buyer.enc, decrypts with the shared passphrase (common.js) and
+   renders winners as cards — Amazon-discovered and Takealot-discovered
+   products carry a `channel` field and get channel-shaped compare tables.
+   Order-now is REAL: it commits an order intent to the command bus and the
    pipeline's orders stage verifies price/freight/margin, then places via
    aliexpress.ds.order.create. Deep auth on purpose — passphrase to see the
-   page, PAT to write, and a typed ORDER confirmation per intent. */
+   page, admin token to write, and a typed ORDER confirmation per intent. */
 
 const REFRESH_MS = 5 * 60_000;
 
@@ -120,9 +122,10 @@ function flagChips(p) {
    Both CDNs serve resized variants via URL convention (verified live):
    Amazon  .../images/I/<id>.jpg → .../images/I/<id>._SX600_.jpg  (~86→30 KB)
    Ali     .../kf/<id>.jpg       → <url>_480x480q75.jpg_.webp     (~88→26 KB)
-   Unrecognised shapes pass through untouched, and the onerror chain always
-   ends at the original URLs, so a CDN dropping the convention costs one
-   retried request, never a broken card. */
+   Takealot gallery URLs arrive pre-sized (the intake resolved {size} to
+   pdpxl). Unrecognised shapes pass through untouched, and the onerror
+   chain always ends at the original URLs, so a CDN dropping the convention
+   costs one retried request, never a broken card. */
 
 const AMAZON_IMG_RE = /^(https:\/\/m\.media-amazon\.com\/images\/I\/[^./]+)\.(jpe?g|png|webp)$/i;
 const ALI_IMG_RE = /^https:\/\/ae-pic-a1\.aliexpress-media\.com\/kf\/[^_]+\.(jpe?g|png)$/i;
@@ -186,13 +189,12 @@ function productImage(p, index) {
   return el("img", attrs);
 }
 
-function productCard(p, index) {
-  const img = productImage(p, index);
+/* ---- channel-shaped compare tables ---- */
 
+function amazonCompare(p) {
   const duty = p.import_percentage != null
     ? `${p.import_percentage}%${p.is_fallback_duty ? " (fallback)" : ""}` : "—";
-
-  const compare = el("table", { class: "compare" },
+  return el("table", { class: "compare" },
     el("tr", {}, el("th", {}, ""), el("th", {}, "Amazon"), el("th", {}, "AliExpress")),
     el("tr", {}, el("th", {}, "Price"), el("td", {}, fmtR(p.amazon_price)),
        el("td", {}, fmtR(p.sku_price ?? p.ali_price_used))),
@@ -207,6 +209,37 @@ function productCard(p, index) {
     el("tr", {}, el("th", {}, "Freight"), el("td", {}, ""), el("td", {}, fmtR(p.freight))),
     el("tr", {}, el("th", {}, "Duty"), el("td", {}, ""), el("td", {}, duty)),
   );
+}
+
+/* Takealot demand column: reviews stand in for rank (the channel exposes no
+   sales rank), the offer stack comes from takealot-enrich (— until it runs). */
+function takealotCompare(p) {
+  const duty = p.import_percentage != null
+    ? `${p.import_percentage}%${p.is_fallback_duty ? " (fallback)" : ""}` : "—";
+  const detail = p.takealot_detail || {};
+  const reviews = p.takealot_reviews != null
+    ? `${fmtNum(p.takealot_reviews)}${p.takealot_rating != null ? ` · ${p.takealot_rating}★` : ""}`
+    : "—";
+  const offers = detail.offer_count != null
+    ? `${fmtNum(detail.offer_count)}${detail.seller ? ` (${detail.seller})` : ""}`
+    : "—";
+  return el("table", { class: "compare" },
+    el("tr", {}, el("th", {}, ""), el("th", {}, "Takealot"), el("th", {}, "AliExpress")),
+    el("tr", {}, el("th", {}, "Price"), el("td", {}, fmtR(p.takealot_price)),
+       el("td", {}, fmtR(p.sku_price ?? p.ali_price_used))),
+    el("tr", {}, el("th", {}, "Reviews"), el("td", {}, reviews), el("td", {}, "")),
+    el("tr", {}, el("th", { title: "buybox offer stack (takealot-enrich)" }, "Offers"),
+       el("td", {}, offers), el("td", {}, "")),
+    el("tr", {}, el("th", {}, "Stock"),
+       el("td", { class: "t" }, p.takealot_in_stock ?? "—"), el("td", {}, "")),
+    el("tr", {}, el("th", {}, "Freight"), el("td", {}, ""), el("td", {}, fmtR(p.freight))),
+    el("tr", {}, el("th", {}, "Duty"), el("td", {}, ""), el("td", {}, duty)),
+  );
+}
+
+function productCard(p, index) {
+  const img = productImage(p, index);
+  const isTakealot = p.channel === "takealot";
 
   return el("div", { class: "product" },
     el("div", { class: "imgbox" }, img),
@@ -218,25 +251,30 @@ function productCard(p, index) {
           ? el("span", { class: "badge score", title: scoreTooltip(p) },
               `⚡ ${p.opportunity_score}`)
           : null,
+        isTakealot
+          ? el("span", { class: "flagchip" }, "🛒 Takealot find")
+          : null,
         p.score_category === "sole_seller_candidate"
           ? el("span", { class: "flagchip" }, "🥇 sole-seller candidate")
           : null),
       el("h3", {}, p.title),
       flagChips(p),
-      compare,
+      isTakealot ? takealotCompare(p) : amazonCompare(p),
       trendBlock(p),
       el("div", { class: "links" },
         p.amazon_url ? el("a", { href: p.amazon_url, target: "_blank", rel: "noopener" }, "Amazon ↗") : null,
+        isTakealot && p.takealot_url
+          ? el("a", { href: p.takealot_url, target: "_blank", rel: "noopener" }, "Takealot ↗") : null,
         p.aliexpress_url ? el("a", { href: p.aliexpress_url, target: "_blank", rel: "noopener" }, "AliExpress ↗") : null,
-        takealotMatchLink(p)),
+        isTakealot ? null : takealotMatchLink(p)),
       orderArea(p),
-      takealotArea(p),
     ));
 }
 
-/* Cross-channel price check from the takealot-match stage: a link with the
-   competing Takealot price when the catalog has the product, a quiet "not
-   on Takealot" (= open field there) once checked, nothing before then. */
+/* Cross-channel price check from the takealot-match stage (Amazon cards
+   only — Takealot-discovered cards ARE the Takealot listing): a link with
+   the competing Takealot price when the catalog has the product, a quiet
+   "not on Takealot" (= open field there) once checked, nothing before. */
 function takealotMatchLink(p) {
   const m = p.takealot_match;
   if (!m) return null;
@@ -255,42 +293,11 @@ function takealotMatchLink(p) {
   }, `Takealot ${m.price_min != null ? fmtR(m.price_min) : ""} ↗`);
 }
 
-/* Takealot channel chip — read-only state from the takealot-listings
-   stage (intents are queued via scripts/listing_admin.py takealot). */
-const TAKEALOT_STATE_LABEL = {
-  pending: "⏳ Takealot: queued — next pass prices it",
-  loadsheet: "📄 Takealot: on the loadsheet — upload + catalog review pending",
-  offer_ready: "✅ Takealot: priced — offer POST queued",
-  submitting: "📤 Takealot: posting offer…",
-  submitted: "📤 Takealot: offer accepted — awaiting visibility",
-  live: "🟢 Takealot: LIVE",
-  fix_required: "🛠️ Takealot: rejected — needs a fix",
-  needs_review: "🚨 Takealot: needs review",
-  rejected: "⛔ Takealot: rejected",
-};
-
-function takealotArea(p) {
-  const t = p.takealot;
-  if (!t) return null;
-  return el("div", { class: "orderstate" },
-    el("span", { class: "flagchip" },
-      TAKEALOT_STATE_LABEL[t.state] || `Takealot: ${t.state}`),
-    t.list_price != null
-      ? el("div", { class: "meta" },
-          `listed at ${fmtR(t.list_price)}`
-          + (t.margin_percent != null ? ` · ~${t.margin_percent}% margin` : ""))
-      : null,
-    t.note && (t.state === "fix_required" || t.state === "rejected"
-               || t.state === "needs_review")
-      ? el("div", { class: "meta" }, t.note)
-      : null);
-}
-
-/* Order button or, when an intent is already in flight for this ASIN, its
-   state (so a second click can't double-order). rejected/failed free the
-   button again — with the reason on display. placed keeps its state chip
-   but offers "Order again" (restocking is deliberate; each click commits a
-   fresh intent id, and the pipeline re-verifies from scratch). */
+/* Order button or, when an intent is already in flight for this product,
+   its state (so a second click can't double-order). rejected/failed free
+   the button again — with the reason on display. placed keeps its state
+   chip but offers "Order again" (restocking is deliberate; each click
+   commits a fresh intent id, and the pipeline re-verifies from scratch). */
 const ORDER_STATE_LABEL = {
   pending: "⏳ order sent — awaiting verification",
   verified: "✅ verified — placement queued",
@@ -526,19 +533,13 @@ function orderNow(p) {
 }
 
 let renderedProductsKey = null;
-let activeTab = "all";
+let activeTab = "amazon";
 let lastProducts = [];
 
 /* Ordered tab: every product whose latest intent exists, in-flight and
    placed first (stable sort keeps the score order within each state). */
 const TAB_STATE_RANK = {
   placed: 0, placing: 1, verified: 2, pending: 3, needs_review: 4,
-};
-
-/* Takealot tab: live first, then the in-flight states in pipeline order. */
-const TAKEALOT_STATE_RANK = {
-  live: 0, submitted: 1, submitting: 2, offer_ready: 3, loadsheet: 4,
-  pending: 5, needs_review: 6, fix_required: 7, rejected: 8,
 };
 
 function tabProducts(products) {
@@ -549,21 +550,15 @@ function tabProducts(products) {
       .sort((a, b) => (TAB_STATE_RANK[a.order.state] ?? 9)
                       - (TAB_STATE_RANK[b.order.state] ?? 9));
   }
-  if (activeTab === "takealot") {
-    return products
-      .filter((p) => p.takealot)
-      .slice()
-      .sort((a, b) => (TAKEALOT_STATE_RANK[a.takealot.state] ?? 9)
-                      - (TAKEALOT_STATE_RANK[b.takealot.state] ?? 9));
-  }
-  return products;
+  return products.filter((p) => (p.channel || "amazon") === activeTab);
 }
 
 function renderTabs() {
   const nav = document.getElementById("tabs");
   if (!nav) return;
+  const amazon = lastProducts.filter((p) => (p.channel || "amazon") === "amazon").length;
+  const takealot = lastProducts.filter((p) => p.channel === "takealot").length;
   const ordered = lastProducts.filter((p) => p.order).length;
-  const takealot = lastProducts.filter((p) => p.takealot).length;
   nav.hidden = false;
   const tab = (id, label) => el("button", {
     class: `tab${activeTab === id ? " active" : ""}`,
@@ -575,9 +570,9 @@ function renderTabs() {
     },
   }, label);
   nav.replaceChildren(
-    tab("all", `All products (${lastProducts.length})`),
-    tab("ordered", `Ordered (${ordered})`),
-    tab("takealot", `Takealot (${takealot})`));
+    tab("amazon", `Amazon (${amazon})`),
+    tab("takealot", `Takealot (${takealot})`),
+    tab("ordered", `Ordered (${ordered})`));
 }
 
 function renderGrid() {
@@ -588,8 +583,8 @@ function renderGrid() {
     grid.append(el("p", {}, activeTab === "ordered"
       ? "Nothing ordered yet — every product card has an Order button."
       : activeTab === "takealot"
-      ? "Nothing queued for Takealot yet — queue winners with " +
-        "scripts/listing_admin.py takealot <ASIN>."
+      ? "No Takealot-discovered winners yet — run the pull-takealot stage " +
+        "(admin → Run stage) and let a funnel run carry the docs through."
       : "No winning products yet — the pipeline is still hunting."));
     return;
   }
@@ -603,8 +598,13 @@ function renderGrid() {
    image for nothing. Tab switches rebuild via renderGrid directly. */
 function render(data, fromCache) {
   updateStaleness(document.getElementById("stale"), data.generated_at, 24 * 60);
+  const kw = data.keywords || {};
+  const kwBits = ["amazon", "takealot"]
+    .filter((m) => kw[m])
+    .map((m) => `${m} intake: ${kw[m].pending ?? 0} pending`);
   document.getElementById("meta").textContent =
-    `${data.products.length} products · updated ${fmtAgo(data.generated_at)}`;
+    `${data.products.length} winners · ${kwBits.join(" · ")} · ` +
+    `updated ${fmtAgo(data.generated_at)}`;
   const key = JSON.stringify(data.products);
   if (key === renderedProductsKey) return;
   renderedProductsKey = key;
@@ -613,8 +613,8 @@ function render(data, fromCache) {
   renderGrid();
 }
 
-/* ---- boot: passphrase gate over user.enc ----
-   Same gate as the admin page (shared passphrase + remembered value).
+/* ---- boot: passphrase gate over buyer.enc ----
+   Same gate as the other pages (shared passphrase + remembered value).
    The SWR fast paint survives encryption: the cached ENVELOPE decrypts
    locally, so a return visit with a remembered passphrase paints without
    waiting on the network. */
@@ -629,7 +629,7 @@ async function tryRender(envelope, fromCache) {
 }
 
 function refresh() {
-  return fetchJsonCached("user.enc", (envelope, fromCache) => {
+  return fetchJsonCached("buyer.enc", (envelope, fromCache) => {
     tryRender(envelope, fromCache).catch(console.warn);
   });
 }
@@ -641,7 +641,7 @@ async function boot() {
   async function attempt(pass, remember) {
     passphrase = pass;
     let cached = null;
-    try { cached = JSON.parse(localStorage.getItem("s2cache:user.enc")); } catch (e) {}
+    try { cached = JSON.parse(localStorage.getItem("s2cache:buyer.enc")); } catch (e) {}
     try {
       if (cached) {
         try {
@@ -649,10 +649,10 @@ async function boot() {
         } catch (e) {
           if (e.name !== "OperationError") throw e;
           // Cache from a rotated passphrase era — the fresh copy decides.
-          await tryRender(await fetchJson("user.enc"), false);
+          await tryRender(await fetchJson("buyer.enc"), false);
         }
       } else {
-        await tryRender(await fetchJson("user.enc"), false);
+        await tryRender(await fetchJson("buyer.enc"), false);
       }
     } catch (e) {
       passphrase = null;
@@ -664,10 +664,10 @@ async function boot() {
     if (remember) localStorage.setItem(PASS_KEY, pass);
     refresh().catch(console.warn);            // fresh copy behind the paint
     setInterval(() => refresh().catch(console.warn), REFRESH_MS);
-    // Live layer (no-op when off): a publish stamps user.enc and the page
+    // Live layer (no-op when off): a publish stamps buyer.enc and the page
     // refreshes within seconds; the interval above stays as the fallback.
     liveConnect((name) => {
-      if (name === "user.enc") refresh().catch(console.warn);
+      if (name === "buyer.enc") refresh().catch(console.warn);
     });
     return true;
   }
