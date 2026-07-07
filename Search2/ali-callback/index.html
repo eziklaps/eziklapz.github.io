@@ -6,6 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Search2 — AliExpress callback</title>
   <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/common.js" defer></script>
 </head>
 <body>
   <div class="wrap" style="max-width:560px">
@@ -19,9 +20,10 @@
         <pre id="code" class="scroll-x" style="padding:10px 12px;border:1px solid var(--hairline);border-radius:8px;background:var(--page);user-select:all"></pre>
         <button id="copy" class="btn">Copy code</button>
         <p class="sub" style="margin-top:10px">
-          If <code>python runtime.py auth</code> is waiting on the pipeline
-          machine it has probably received this code already (see above).
-          Otherwise paste it into that prompt. The code is single-use and
+          Manual fallback: in the <code>python runtime.py auth</code> terminal
+          press Ctrl-C (give it a few seconds), then paste the code at the
+          prompt — in a classic Windows console paste with a
+          <strong>right-click</strong>, not Ctrl-V. The code is single-use and
           expires in minutes.
         </p>
       </div>
@@ -29,20 +31,25 @@
     <footer class="page"><a href="../user/">product finds</a> · <a href="../admin/">pipeline admin</a></footer>
   </div>
   <script>
-    /* AliExpress's console only accepts https callback URLs, so the OAuth
-       redirect lands here. runtime.py auth still listens on localhost:8686 —
-       hand the code over when this browser runs on the pipeline machine.
-       A no-cors GET is fire-and-forget: resolving means SOMETHING answered
-       on the port (assume delivered); rejection means nothing is listening
-       (auth not running, or a different machine) — the copy-paste box is
-       the fallback either way. */
-    const LOCAL_CATCHER = "http://localhost:8686/aliexpress/callback";
-    const status = document.getElementById("status");
-    const code = new URLSearchParams(location.search).get("code");
-    if (!code) {
-      status.textContent = "⚠ No ?code= in this URL. Restart the sign-in " +
-        "from the admin page or 'python runtime.py auth' and approve access.";
-    } else {
+    /* The OAuth redirect lands here (the AliExpress console only accepts
+       https callback URLs). Hand-off order:
+       1. Command bus — publish {code, at} as doc.auth via mutateCommands
+          (common.js), using the dashboard admin token this browser already
+          holds from the admin/user pages (same origin, same localStorage).
+          'python runtime.py auth' polls the bus and exchanges the code.
+       2. localhost catcher — legacy path; blocked by Chrome's Local
+          Network Access on public pages, but harmless to try.
+       3. The copy-paste box above, always shown. */
+    const LOCAL_CATCHER = "http://127.0.0.1:8686/aliexpress/callback";
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const status = document.getElementById("status");
+      const code = new URLSearchParams(location.search).get("code");
+      if (!code) {
+        status.textContent = "⚠ No ?code= in this URL. Restart the sign-in " +
+          "from 'python runtime.py auth' and approve access.";
+        return;
+      }
       document.getElementById("code-box").hidden = false;
       document.getElementById("code").textContent = code;
       document.getElementById("copy").addEventListener("click", async () => {
@@ -51,19 +58,38 @@
           document.getElementById("copy").textContent = "Copied ✓";
         } catch (e) { /* clipboard blocked — the code is selectable above */ }
       });
-      status.textContent = "Handing the code to runtime.py auth on this machine…";
-      fetch(`${LOCAL_CATCHER}?code=${encodeURIComponent(code)}`,
-            { mode: "no-cors", cache: "no-store" })
-        .then(() => {
-          status.textContent = "✅ Code delivered to 'python runtime.py auth' " +
-            "on this machine — check the terminal, then close this tab.";
-        })
-        .catch(() => {
-          status.textContent = "⚠ Nothing is listening on this machine " +
-            "(is 'python runtime.py auth' running?). Copy the code below " +
-            "and paste it into the auth prompt.";
-        });
-    }
+
+      function tryLocalhost() {
+        status.textContent = "Trying the local catcher on this machine…";
+        fetch(`${LOCAL_CATCHER}?code=${encodeURIComponent(code)}`,
+              { mode: "no-cors", cache: "no-store" })
+          .then(() => {
+            status.textContent = "✅ Code handed to the local catcher — " +
+              "check the 'python runtime.py auth' terminal.";
+          })
+          .catch(() => {
+            status.textContent = "⚠ Couldn't deliver automatically (no " +
+              "dashboard token in this browser and localhost is blocked). " +
+              "Copy the code below and paste it into the auth prompt.";
+          });
+      }
+
+      if (typeof mutateCommands === "function"
+          && localStorage.getItem(PAT_KEY)) {
+        status.textContent = "Delivering the code over the command bus…";
+        mutateCommands((doc) => {
+          doc.auth = { code, at: new Date().toISOString() };
+        }, "Dashboard: AliExpress auth code")
+          .then(() => {
+            status.textContent = "✅ Code delivered — 'python runtime.py " +
+              "auth' picks it up within seconds; check the terminal, then " +
+              "close this tab.";
+          })
+          .catch(() => tryLocalhost());
+      } else {
+        tryLocalhost();
+      }
+    });
   </script>
 </body>
 </html>
