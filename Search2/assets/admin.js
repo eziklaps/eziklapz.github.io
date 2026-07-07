@@ -165,17 +165,21 @@ function authWarning(auth) {
     missing: "AliExpress tokens are missing from .env — nothing can be pulled from AliExpress.",
     expiring: `AliExpress refresh token expires ${fmtIn(auth.refresh_expires_at)} — re-authorize before it dies.`,
   }[auth.status];
+  // Text and button on separate rows — an inline button tall enough to
+  // click paints over the message text otherwise.
   return el("div", {
     class: "banner show",
     style: critical ? "border-left-color: var(--critical)" : "",
   },
-    `${critical ? "⛔" : "⚠"} ${text} `,
-    "Run ", el("code", {}, "python runtime.py auth"),
-    " on the pipeline machine (it opens this sign-in and saves fresh tokens): ",
-    el("a", {
-      class: "btn", href: auth.authorize_url, target: "_blank",
-      rel: "noreferrer", style: "text-decoration:none;margin-left:6px",
-    }, "Re-authenticate AliExpress"));
+    el("div", {},
+      `${critical ? "⛔" : "⚠"} ${text} `,
+      "Run ", el("code", {}, "python runtime.py auth"),
+      " on the pipeline machine (it opens this sign-in and saves fresh tokens), or:"),
+    el("div", {},
+      el("a", {
+        class: "btn", href: auth.authorize_url, target: "_blank",
+        rel: "noreferrer", style: "margin-top:8px",
+      }, "Re-authenticate AliExpress")));
 }
 
 /* Remote control: pause/resume lanes, stop/start the run — every action is
@@ -258,6 +262,27 @@ function controlsPanel(data) {
     el("option", { value: "720" }, "12 hours"),
     el("option", { value: "1440" }, "24 hours"));
 
+  // One-off stage runner: 'serve' runs exactly the picked stage between
+  // publish ticks — the way to clear a single backlog (embed-submit,
+  // collect, matching, …) without paying for a full funnel run. The lane
+  // pause/resume buttons below do NOT do this: they only flag a lane of an
+  // already-live run.
+  const STAGE_OPTIONS = [
+    ["embed-submit", "embed-submit — submit embedding backlog (Gemini batch)"],
+    ["vision-submit", "vision-submit — submit vision backlog (Gemini batch)"],
+    ["duties-submit", "duties-submit — submit duties backlog (Gemini batch)"],
+    ["collect", "collect — ingest finished Gemini batches now"],
+    ["matching", "matching — vector matching"],
+    ["gate", "gate — provisional margin gate"],
+    ["margins", "margins — calculate margins"],
+    ["score", "score — opportunity score"],
+  ];
+  const selectStyle = "padding:8px 10px;margin-right:8px;" +
+    "border:1px solid var(--hairline);border-radius:8px;" +
+    "background:var(--surface);color:var(--ink);max-width:100%;";
+  const stageSelect = el("select", { style: selectStyle },
+    ...STAGE_OPTIONS.map(([value, label]) => el("option", { value }, label)));
+
   body.append(
     el("div", {},
       budgetSelect,
@@ -268,7 +293,8 @@ function controlsPanel(data) {
             ? `start run (${budgetSelect.selectedOptions[0].textContent})`
             : "start run";
           act(label, (doc) => {
-            doc.run = { desired: "running",
+            doc.run = { ...(doc.run || {}),
+                        desired: "running",
                         start_requested_at: new Date().toISOString(),
                         budget_minutes: minutes };
           });
@@ -285,6 +311,22 @@ function controlsPanel(data) {
             `last applied ${fmtAgo(ack.applied_at)} (run: ${ack.run ?? "—"})`)
         : el("span", { class: "hint", style: "margin-left:12px" },
             "no ack yet — is a run (or 'serve') active?")),
+    el("div", { style: "margin-top:10px" },
+      stageSelect,
+      el("button", {
+        class: "btn ghost", onclick: () => {
+          const stage = stageSelect.value;
+          act(`run stage ${stage}`, (doc) => {
+            doc.run = { ...(doc.run || {}),
+                        stages: [stage],
+                        stages_requested_at: new Date().toISOString() };
+          });
+        },
+      }, "Run stage"),
+      el("div", { class: "hint", style: "margin-top:4px" },
+        "Runs one stage without a full funnel run ('serve' must be up). " +
+        "Gemini batches submit and are collected automatically when Google " +
+        "finishes them.")),
     el("div", { class: "scroll-x", style: "margin-top:10px" }, table),
     status);
   return panel("Remote control", body);
@@ -337,7 +379,8 @@ function ordersPanel(data) {
     const table = el("table", { class: "data" },
       el("tr", {}, el("th", {}, "intent"), el("th", {}, "asin"),
          el("th", {}, "state"), el("th", {}, "qty"), el("th", {}, "cost"),
-         el("th", {}, "when"), el("th", {}, "last note")));
+         el("th", {}, "when"), el("th", {}, "tracking"),
+         el("th", {}, "last note")));
     for (const o of summary.recent) {
       table.append(el("tr", {},
         el("td", { class: "t" }, o.id),
@@ -347,6 +390,7 @@ function ordersPanel(data) {
         el("td", {}, fmtNum(o.quantity)),
         el("td", {}, o.order_cost != null ? fmtR(o.order_cost) : "—"),
         el("td", { class: "t" }, fmtAgo(o.received_at)),
+        el("td", { class: "t" }, trackingCell(o.tracking)),
         el("td", { class: "t" }, o.note ?? "")));
     }
     body.append(el("div", { class: "scroll-x", style: "margin-top:10px" }, table));
@@ -382,6 +426,22 @@ function ordersPanel(data) {
   }
   body.append(status);
   return panel("Ordering", body);
+}
+
+/* Compact tracking cell: newest event + age, full detail on hover.
+   The pipeline polls aliexpress.ds.order.tracking.get every 6h per placed
+   order (services/ordering._track_placed). */
+function trackingCell(t) {
+  const latest = t?.events?.[0];
+  if (!latest) return "—";
+  const bits = [];
+  if (latest.desc && latest.desc !== latest.name) bits.push(latest.desc);
+  if (t.mail_no) bits.push(`waybill ${t.mail_no}` +
+                           (t.carrier ? ` via ${t.carrier}` : ""));
+  if (t.eta_at) bits.push(`ETA ${fmtDate(t.eta_at)}`);
+  bits.push(`checked ${fmtAgo(t.checked_at)}`);
+  return el("span", { title: bits.join(" — ") },
+    `📦 ${latest.name || "update"} · ${fmtAgo(latest.at)}`);
 }
 
 function fmtDur(seconds) {

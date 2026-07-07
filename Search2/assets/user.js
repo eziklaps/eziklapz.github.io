@@ -248,12 +248,21 @@ const ORDER_STATE_LABEL = {
 function orderArea(p) {
   const o = p.order;
   if (o && ORDER_STATE_LABEL[o.state]) {
+    // Once tracking exists the chip carries the latest fulfilment stage
+    // ("Order shipped") instead of the static "ordered".
+    const latest = o.tracking?.events?.[0];
+    const chipText = o.state === "placed" && latest
+      ? `🚚 ${latest.name || "shipped"}`
+      : ORDER_STATE_LABEL[o.state];
     return el("div", { class: "orderstate" },
-      el("span", { class: "flagchip" }, ORDER_STATE_LABEL[o.state]),
+      el("span", { class: "flagchip" }, chipText),
       o.state === "placed" && o.ae_order_ids?.length
         ? el("div", { class: "meta" },
-            `AliExpress order ${o.ae_order_ids.join(", ")} — pay on aliexpress.com if not auto-paid`)
+            `AliExpress order ${o.ae_order_ids.join(", ")}`
+            + (o.payment_state === "paid" ? " — paid"
+               : latest ? "" : " — pay on aliexpress.com if not auto-paid"))
         : null,
+      o.state === "placed" ? trackingBlock(o.tracking) : null,
       o.state === "placed"
         ? el("div", { style: "margin-top:8px" },
             el("button", { class: "btn order",
@@ -269,6 +278,23 @@ function orderArea(p) {
       : null,
     el("button", { class: "btn order", onclick: () => orderNow(p) },
       o ? "Order again" : "Order now"));
+}
+
+/* Fulfilment timeline off the 6h tracking poll: newest event emphasized,
+   older ones below, waybill + carrier + ETA as the footer line. */
+function trackingBlock(t) {
+  if (!t || !(t.events || []).length) return null;
+  const footer = [
+    t.mail_no ? `waybill ${t.mail_no}` : null,
+    t.carrier,
+    t.eta_at ? `ETA ${fmtDate(t.eta_at)}` : null,
+  ].filter(Boolean).join(" · ");
+  return el("div", { class: "trackline" },
+    ...t.events.map((e, i) => el("div", {
+      class: `tstep${i === 0 ? " now" : ""}`,
+      title: e.desc && e.desc !== e.name ? e.desc : "",
+    }, `${i === 0 ? "●" : "○"} ${e.name || e.desc || "update"} · ${fmtAgo(e.at)}`)),
+    footer ? el("div", { class: "meta" }, footer) : null);
 }
 
 /* Cancelled-on-the-website orders can't be auto-detected (the AliExpress
@@ -446,12 +472,61 @@ function orderNow(p) {
 }
 
 let renderedProductsKey = null;
+let activeTab = "all";
+let lastProducts = [];
+
+/* Ordered tab: every product whose latest intent exists, in-flight and
+   placed first (stable sort keeps the score order within each state). */
+const TAB_STATE_RANK = {
+  placed: 0, placing: 1, verified: 2, pending: 3, needs_review: 4,
+};
+
+function tabProducts(products) {
+  if (activeTab !== "ordered") return products;
+  return products
+    .filter((p) => p.order)
+    .slice()
+    .sort((a, b) => (TAB_STATE_RANK[a.order.state] ?? 9)
+                    - (TAB_STATE_RANK[b.order.state] ?? 9));
+}
+
+function renderTabs() {
+  const nav = document.getElementById("tabs");
+  if (!nav) return;
+  const ordered = lastProducts.filter((p) => p.order).length;
+  nav.hidden = false;
+  const tab = (id, label) => el("button", {
+    class: `tab${activeTab === id ? " active" : ""}`,
+    onclick: () => {
+      if (activeTab === id) return;
+      activeTab = id;
+      renderTabs();
+      renderGrid();
+    },
+  }, label);
+  nav.replaceChildren(
+    tab("all", `All products (${lastProducts.length})`),
+    tab("ordered", `Ordered (${ordered})`));
+}
+
+function renderGrid() {
+  const grid = document.getElementById("products");
+  grid.replaceChildren();
+  const list = tabProducts(lastProducts);
+  if (!list.length) {
+    grid.append(el("p", {}, activeTab === "ordered"
+      ? "Nothing ordered yet — every product card has an Order button."
+      : "No winning products yet — the pipeline is still hunting."));
+    return;
+  }
+  list.forEach((p, i) => grid.append(productCard(p, i)));
+}
 
 /* Called up to twice per load (cached copy, then fresh) and again on every
    poll tick. The meta line always updates; the grid only rebuilds when the
    product content actually changed — the hourly force-republish bumps
    generated_at without changing content, and rebuilding re-decodes every
-   image for nothing. */
+   image for nothing. Tab switches rebuild via renderGrid directly. */
 function render(data, fromCache) {
   updateStaleness(document.getElementById("stale"), data.generated_at, 24 * 60);
   document.getElementById("meta").textContent =
@@ -459,13 +534,9 @@ function render(data, fromCache) {
   const key = JSON.stringify(data.products);
   if (key === renderedProductsKey) return;
   renderedProductsKey = key;
-  const grid = document.getElementById("products");
-  grid.replaceChildren();
-  if (!data.products.length) {
-    grid.append(el("p", {}, "No winning products yet — the pipeline is still hunting."));
-    return;
-  }
-  data.products.forEach((p, i) => grid.append(productCard(p, i)));
+  lastProducts = data.products;
+  renderTabs();
+  renderGrid();
 }
 
 /* ---- boot: passphrase gate over user.enc ----

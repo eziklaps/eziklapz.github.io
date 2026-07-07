@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Search2 — AliExpress callback</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <div class="wrap" style="max-width:560px">
+    <header class="page">
+      <h1>AliExpress authorization</h1>
+    </header>
+    <section class="panel">
+      <div id="status" class="banner show">Reading the callback…</div>
+      <div id="code-box" hidden>
+        <p class="sub">Authorization code:</p>
+        <pre id="code" class="scroll-x" style="padding:10px 12px;border:1px solid var(--hairline);border-radius:8px;background:var(--page);user-select:all"></pre>
+        <button id="copy" class="btn">Copy code</button>
+        <p class="sub" style="margin-top:10px">
+          If <code>python runtime.py auth</code> is waiting on the pipeline
+          machine it has probably received this code already (see above).
+          Otherwise paste it into that prompt. The code is single-use and
+          expires in minutes.
+        </p>
+      </div>
+    </section>
+    <footer class="page"><a href="../user/">product finds</a> · <a href="../admin/">pipeline admin</a></footer>
+  </div>
+  <script>
+    /* AliExpress's console only accepts https callback URLs, so the OAuth
+       redirect lands here. runtime.py auth still listens on localhost:8686 —
+       hand the code over when this browser runs on the pipeline machine.
+       A no-cors GET is fire-and-forget: resolving means SOMETHING answered
+       on the port (assume delivered); rejection means nothing is listening
+       (auth not running, or a different machine) — the copy-paste box is
+       the fallback either way. */
+    const LOCAL_CATCHER = "http://localhost:8686/aliexpress/callback";
+    const status = document.getElementById("status");
+    const code = new URLSearchParams(location.search).get("code");
+    if (!code) {
+      status.textContent = "⚠ No ?code= in this URL. Restart the sign-in " +
+        "from the admin page or 'python runtime.py auth' and approve access.";
+    } else {
+      document.getElementById("code-box").hidden = false;
+      document.getElementById("code").textContent = code;
+      document.getElementById("copy").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(code);
+          document.getElementById("copy").textContent = "Copied ✓";
+        } catch (e) { /* clipboard blocked — the code is selectable above */ }
+      });
+      status.textContent = "Handing the code to runtime.py auth on this machine…";
+      fetch(`${LOCAL_CATCHER}?code=${encodeURIComponent(code)}`,
+            { mode: "no-cors", cache: "no-store" })
+        .then(() => {
+          status.textContent = "✅ Code delivered to 'python runtime.py auth' " +
+            "on this machine — check the terminal, then close this tab.";
+        })
+        .catch(() => {
+          status.textContent = "⚠ Nothing is listening on this machine " +
+            "(is 'python runtime.py auth' running?). Copy the code below " +
+            "and paste it into the auth prompt.";
+        });
+    }
+  </script>
+</body>
+</html>

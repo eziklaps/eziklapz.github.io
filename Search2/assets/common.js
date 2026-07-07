@@ -125,6 +125,12 @@ function fmtNum(value) {
   return Number(value).toLocaleString("en-ZA");
 }
 
+function fmtDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-ZA",
+    { day: "numeric", month: "short" });
+}
+
 function fmtAgo(iso) {
   if (!iso) return "—";
   const ms = Date.now() - new Date(iso).getTime();

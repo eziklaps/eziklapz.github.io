@@ -131,14 +131,31 @@ table.data td.t { font-variant-numeric: normal; }
   background: var(--surface); color: var(--ink);
 }
 .gate button, .btn {
+  /* inline-block: as an <a> the button otherwise stays inline and its
+     padding paints over the neighboring line of text */
+  display: inline-block;
   margin-top: 12px; padding: 9px 18px; font-size: 14px; cursor: pointer;
   border: 1px solid var(--ring); border-radius: 8px;
   background: var(--accent); color: #fff;
 }
+a.btn { text-decoration: none; }
+a.btn:hover { text-decoration: none; }
 .btn.ghost { background: transparent; color: var(--accent); }
 .gate .error { color: var(--critical); font-size: 13px; margin-top: 10px; min-height: 18px; }
 
 /* ---- user page: product showcase ---- */
+/* tab bar (All products / Ordered) */
+.tabs { display: flex; gap: 8px; margin: 0 0 14px; flex-wrap: wrap; }
+.tab {
+  padding: 7px 16px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--hairline); border-radius: 999px;
+  background: var(--surface); color: var(--ink-2);
+}
+.tab.active {
+  background: var(--accent); border-color: var(--accent);
+  color: #fff; font-weight: 600;
+}
+
 .products { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
 .product {
   background: var(--surface); border: 1px solid var(--ring);
@@ -171,6 +188,10 @@ table.data td.t { font-variant-numeric: normal; }
 /* in-flight order intent state shown in place of the Order button */
 .orderstate { margin-top: 4px; }
 .orderstate .meta, .product .meta { color: var(--ink-2); font-size: 12px; margin-top: 4px; }
+/* fulfilment timeline (ds.order.tracking.get events, newest first) */
+.trackline { margin-top: 6px; font-size: 12px; color: var(--ink-2); }
+.trackline .tstep { padding: 1px 0; }
+.trackline .tstep.now { color: var(--ink); font-weight: 600; }
 
 /* history sparklines: series line in the de-emphasis hue, current segment +
    surface-ringed end-dot in the accent; values wear text tokens, direction
