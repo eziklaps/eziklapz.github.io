@@ -335,6 +335,7 @@ const ORDER_STATE_LABEL = {
   verified: "✅ verified — placement queued",
   placing: "🛒 placing on AliExpress…",
   placed: "📦 ordered",
+  received: "📥 received — in stock",
   needs_review: "🚨 needs review — see admin page",
 };
 
@@ -355,6 +356,10 @@ function orderArea(p) {
             + (o.payment_state === "paid" ? " — paid"
                : latest ? "" : " — pay on aliexpress.com if not auto-paid"))
         : null,
+      o.state === "received" && o.ae_order_ids?.length
+        ? el("div", { class: "meta" },
+            `AliExpress order ${o.ae_order_ids.join(", ")} — in inventory`)
+        : null,
       o.state === "placed" ? trackingBlock(o.tracking) : null,
       o.state === "placed"
         ? el("div", { style: "margin-top:8px" },
@@ -362,7 +367,15 @@ function orderArea(p) {
                            onclick: () => orderNow(p) }, "Order again"),
             " ",
             el("button", { class: "btn ghost",
+                           onclick: () => markReceived(p, o) }, "Mark received"),
+            " ",
+            el("button", { class: "btn ghost",
                            onclick: () => markCancelled(p, o) }, "Mark cancelled"))
+        : null,
+      o.state === "received"
+        ? el("div", { style: "margin-top:8px" },
+            el("button", { class: "btn order",
+                           onclick: () => orderNow(p) }, "Order again"))
         : null);
   }
   return el("div", {},
@@ -388,6 +401,54 @@ function trackingBlock(t) {
       title: e.desc && e.desc !== e.name ? e.desc : "",
     }, `${i === 0 ? "●" : "○"} ${e.name || e.desc || "update"} · ${fmtAgo(e.at)}`)),
     footer ? el("div", { class: "meta" }, footer) : null);
+}
+
+/* The happy-path mirror of markCancelled: the box is physically in hand.
+   A received entry rides the commands.json wire; the pipeline flips the
+   intent to 'received', posts any missing COGS rows (arrival proves
+   payment) and books the goods into the inventory collection at their
+   estimated landed cost (services/logistics.receive_intent). */
+function markReceived(p, o) {
+  const dialog = document.getElementById("order-modal");
+  if (!localStorage.getItem(PAT_KEY)) {
+    orderNow(p); // the order flow collects the token first
+    return;
+  }
+  const status = el("p", { class: "meta" }, "");
+  const confirmBtn = el("button", { class: "btn" }, "Mark received");
+  confirmBtn.addEventListener("click", async () => {
+    confirmBtn.setAttribute("disabled", "");
+    status.textContent = "Committing receipt…";
+    try {
+      await mutateCommands((doc) => {
+        doc.orders = (doc.orders || []).filter((x) =>
+          x.requested_at && Date.now() - new Date(x.requested_at) < 7 * 864e5);
+        doc.orders.push({ id: o.id, received: true,
+                          requested_at: new Date().toISOString() });
+      }, `Dashboard: mark ${o.id} received`);
+      status.textContent = "✅ Receipt committed — the intent flips to " +
+        "received and the goods book into inventory when the pipeline " +
+        "next syncs (within ~30s while a run or serve is active).";
+      confirmBtn.replaceWith(el("button", {
+        class: "btn ghost", onclick: () => dialog.close() }, "Done"));
+    } catch (e) {
+      status.textContent = `Failed: ${e.message}`;
+      if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+      confirmBtn.removeAttribute("disabled");
+    }
+  });
+  dialog.replaceChildren(
+    el("h3", {}, "Mark order received"),
+    el("p", { class: "meta" },
+      `The parcel for intent ${o.id} (AliExpress order ` +
+      (o.ae_order_ids || []).join(", ") +
+      ") arrived. This closes tracking for it, books the goods into " +
+      "inventory at their estimated landed cost, and frees the Order " +
+      "button for a restock."),
+    confirmBtn, " ",
+    el("button", { class: "btn ghost", onclick: () => dialog.close() }, "Close"),
+    status);
+  dialog.showModal();
 }
 
 /* Cancelled-on-the-website orders can't be auto-detected (the AliExpress

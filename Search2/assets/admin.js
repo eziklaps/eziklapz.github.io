@@ -363,7 +363,8 @@ function controlsPanel(data) {
    for anything to be placed — this button can only ever make it safer. */
 const ORDER_STATE_CHIP = {
   pending: "neutral", verified: "good", placing: "warning", placed: "good",
-  rejected: "neutral", failed: "serious", needs_review: "critical",
+  received: "good", rejected: "neutral", failed: "serious",
+  needs_review: "critical",
 };
 
 function ordersPanel(data) {
@@ -399,6 +400,17 @@ function ordersPanel(data) {
       href: "https://www.aliexpress.com/p/order/index.html?spm=a2g0o.order_list",
       target: "_blank", rel: "noopener",
     }, "💳 Pay on AliExpress ↗")));
+
+  // Stock on hand: what "Mark received" has booked into the inventory
+  // collection (estimated landed cost until actuals exist).
+  const inv = summary.inventory || {};
+  if (inv.rows) {
+    body.append(el("div", { style: "margin-top:10px" },
+      el("span", { class: "chip good" }, el("span", { class: "dot" }),
+        `📥 ${fmtNum(inv.units)} unit${inv.units > 1 ? "s" : ""} in stock ` +
+        `across ${inv.rows} receipt${inv.rows > 1 ? "s" : ""} — ` +
+        `${fmtR(inv.value_rand)} (estimate)`)));
+  }
 
   if ((summary.recent || []).length) {
     const table = el("table", { class: "data" },
