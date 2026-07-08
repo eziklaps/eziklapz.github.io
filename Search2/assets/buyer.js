@@ -689,7 +689,7 @@ function renderGrid() {
    product content actually changed — the hourly force-republish bumps
    generated_at without changing content, and rebuilding re-decodes every
    image for nothing. Tab switches rebuild via renderGrid directly. */
-function render(data, fromCache) {
+function renderMeta(data) {
   updateStaleness(document.getElementById("stale"), data.generated_at, 24 * 60);
   const kw = data.keywords || {};
   const kwBits = ["amazon", "takealot"]
@@ -698,6 +698,10 @@ function render(data, fromCache) {
   document.getElementById("meta").textContent =
     `${data.products.length} winners · ${kwBits.join(" · ")} · ` +
     `updated ${fmtAgo(data.generated_at)}`;
+}
+
+function render(data, fromCache) {
+  renderMeta(data);
   const key = JSON.stringify(data.products);
   if (key === renderedProductsKey) return;
   renderedProductsKey = key;
@@ -714,8 +718,21 @@ function render(data, fromCache) {
 
 let passphrase = null;
 
+/* Identical ciphertext = identical payload (the publisher is hash-gated),
+   so skip the PBKDF2 decrypt entirely — the grid dedupe in render() can't
+   help with that cost. Only set after a successful decrypt: a wrong
+   passphrase must keep hitting the gate. */
+let lastCiphertext = null;
+let lastRendered = null;
+
 async function tryRender(envelope, fromCache) {
+  if (lastCiphertext && envelope.ciphertext === lastCiphertext) {
+    if (lastRendered) renderMeta(lastRendered);   // the clock lines keep aging
+    return;
+  }
   const data = await decryptEnvelope(envelope, passphrase); // throws on wrong pass
+  lastCiphertext = envelope.ciphertext;
+  lastRendered = data;
   document.getElementById("gate").hidden = true;
   document.getElementById("main").hidden = false;
   render(data, fromCache);

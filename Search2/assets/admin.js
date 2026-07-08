@@ -13,15 +13,18 @@ const LANE_ICON = {
   error: "!", failed: "✗", stopped: "■", starting: "○",
 };
 
-function render(data) {
-  const root = document.getElementById("dash");
-  root.replaceChildren();
+function renderHeader(data) {
   updateStaleness(document.getElementById("stale"), data.generated_at);
-
   document.getElementById("runmeta").textContent =
     `funnel: ${data.funnel_state ?? "none"}` +
     (data.run_id ? ` · run ${data.run_id}` : "") +
     ` · published ${fmtAgo(data.generated_at)}`;
+}
+
+function render(data) {
+  const root = document.getElementById("dash");
+  root.replaceChildren();
+  renderHeader(data);
 
   // --- AliExpress credential health ---
   const authBanner = authWarning(data.aliexpress_auth);
@@ -1229,9 +1232,24 @@ function kwRow(marker, entry) {
     el("td", {}, fmtNum(entry.margin_success)));
 }
 
+/* The publisher only re-POSTs a blob when its content changed, so an
+   identical ciphertext means an identical payload: skip the PBKDF2 decrypt
+   AND the full DOM rebuild — a rebuild resets scroll positions, dropdown
+   selections and status lines, so redundant ones read as the page
+   "glitching". Only set after a successful decrypt: a wrong passphrase
+   must keep hitting the gate. */
+let lastCiphertext = null;
+let lastData = null;
+
 async function loadAndRender(passphrase) {
   const envelope = await fetchJson("admin.enc");
+  if (lastCiphertext && envelope.ciphertext === lastCiphertext) {
+    if (lastData) renderHeader(lastData);   // the clock lines keep aging
+    return;
+  }
   const data = await decryptEnvelope(envelope, passphrase);
+  lastCiphertext = envelope.ciphertext;
+  lastData = data;
   document.getElementById("gate").hidden = true;
   document.getElementById("main").hidden = false;
   render(data);

@@ -769,12 +769,16 @@ function renderPanels() {
   else amazonTab(root, lastData);
 }
 
-function render(data) {
+function renderMeta(data) {
   updateStaleness(document.getElementById("stale"), data.generated_at, 24 * 60);
   const az = ((data.amazon || {}).intents || []).length;
   const tk = ((data.takealot || {}).intents || []).length;
   document.getElementById("meta").textContent =
     `${az} Amazon · ${tk} Takealot intents · updated ${fmtAgo(data.generated_at)}`;
+}
+
+function render(data) {
+  renderMeta(data);
   lastData = data;
   renderTabs();
   renderPanels();
@@ -786,9 +790,20 @@ function panel(title, body) {
 
 /* ---- boot: passphrase gate over seller.enc ---- */
 
+/* Identical ciphertext = identical payload (the publisher is hash-gated):
+   skip the PBKDF2 decrypt and the DOM rebuild — rebuilds reset the active
+   tab's scroll, typed prices and status lines. Only set after a successful
+   decrypt: a wrong passphrase must keep hitting the gate. */
+let lastCiphertext = null;
+
 async function loadAndRender(passphrase) {
   const envelope = await fetchJson("seller.enc");
+  if (lastCiphertext && envelope.ciphertext === lastCiphertext) {
+    if (lastData) renderMeta(lastData);   // the clock lines keep aging
+    return;
+  }
   const data = await decryptEnvelope(envelope, passphrase);
+  lastCiphertext = envelope.ciphertext;
   document.getElementById("gate").hidden = true;
   document.getElementById("main").hidden = false;
   render(data);
