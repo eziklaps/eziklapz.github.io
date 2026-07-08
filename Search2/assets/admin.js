@@ -915,7 +915,12 @@ function attentionPanel(items) {
             href: `https://www.aliexpress.com/p/order/detail.html?orderId=${order}`,
             target: "_blank", rel: "noopener", title: it.intent_id,
           }, `AE ${order} ↗`)
-        : it.intent_id),
+        : it.order_id
+          ? el("a", {
+              href: `https://sellercentral.amazon.co.za/orders-v3/order/${it.order_id}`,
+              target: "_blank", rel: "noopener", title: it.intent_id,
+            }, `AMZ ${it.order_id} ↗`)
+          : it.intent_id),
       el("td", { class: "t" }, it.asin ?? "—"),
       el("td", { class: "t" }, it.message),
       el("td", { class: "t" }, it.act_by ? fmtDate(it.act_by) : "—")));

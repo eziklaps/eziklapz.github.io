@@ -499,10 +499,12 @@ function salesPanel(sales, label) {
     body.append(chips);
   }
   if (recent.length) {
+    const shippable = label === "Amazon";
     const table = el("table", { class: "data" },
       el("tr", {}, el("th", {}, "order"), el("th", {}, "product"),
          el("th", {}, "qty"), el("th", {}, "price"), el("th", {}, "state"),
-         el("th", {}, "when")));
+         el("th", {}, "when"),
+         shippable ? el("th", {}, "fulfilment") : null));
     for (const s of recent) {
       table.append(el("tr", {},
         el("td", { class: "t" }, s.order_id),
@@ -510,7 +512,8 @@ function salesPanel(sales, label) {
         el("td", {}, fmtNum(s.quantity)),
         el("td", {}, fmtR(s.selling_price)),
         el("td", { class: "t" }, s.state ?? "—"),
-        el("td", { class: "t" }, fmtAgo(s.ordered_at))));
+        el("td", { class: "t" }, fmtAgo(s.ordered_at)),
+        shippable ? el("td", { class: "t" }, shipCell(s)) : null));
     }
     body.append(el("div", { class: "scroll-x" }, table));
   } else {
@@ -522,6 +525,96 @@ function salesPanel(sales, label) {
           "is on the new code"));
   }
   return panel(`Sales — ${label}`, body);
+}
+
+/* MFN fulfilment cell + form. ZA has no buy-shipping API, so the label is
+   bought at the courier by hand; the form's entry rides doc.shipments on
+   the command bus and funnel/commands.sink_shipments POSTs the Orders API
+   shipmentConfirmation. Confirming on time is what keeps Late Shipment
+   (<4%) and Valid Tracking (>=95%) intact. */
+function shipCell(s) {
+  if (s.fulfillment === "AFN") return "FBA";
+  if (s.ship_confirmed_at) {
+    return el("span", { class: "chip good" }, el("span", { class: "dot" }),
+      `🚚 confirmed${s.ship_tracking ? ` · ${s.ship_tracking}` : ""}`);
+  }
+  if (!["Unshipped", "PartiallyShipped"].includes(s.state)) return "—";
+  const cell = el("span", {});
+  if (s.ship_confirm_error) {
+    cell.append(el("span", {
+      class: "chip critical", style: "margin-right:8px",
+      title: s.ship_confirm_error,
+    }, el("span", { class: "dot" }), "confirm failed — retry"));
+  }
+  cell.append(el("button", { class: "btn", onclick: () => confirmShipModal(s) },
+    "🚚 Confirm shipment"));
+  if (s.latest_ship_date) {
+    cell.append(el("div", { class: "meta" },
+      `ship by ${fmtDate(s.latest_ship_date)}`));
+  }
+  return cell;
+}
+
+function confirmShipModal(s) {
+  withToken(() => {
+    const dialog = document.getElementById("act-modal");
+    const inputStyle =
+      "width:100%;padding:8px 10px;margin:8px 0;border:1px solid " +
+      "var(--hairline);border-radius:8px;background:var(--surface);" +
+      "color:var(--ink);";
+    const carrier = el("input", {
+      type: "text", placeholder: "Courier (e.g. The Courier Guy)",
+      style: inputStyle });
+    const tracking = el("input", {
+      type: "text", placeholder: "Tracking / waybill number",
+      style: inputStyle });
+    const status = el("p", { class: "meta" }, "");
+    const confirmBtn = el("button", { class: "btn" }, "Confirm shipment");
+    confirmBtn.addEventListener("click", async () => {
+      const trackingNo = tracking.value.trim();
+      if (!trackingNo) {
+        status.textContent =
+          "Tracking number required — it feeds Valid Tracking Rate.";
+        return;
+      }
+      confirmBtn.setAttribute("disabled", "");
+      status.textContent = "Committing shipment confirmation…";
+      try {
+        await mutateCommands((doc) => {
+          doc.shipments = (doc.shipments || []).filter((x) =>
+            x.requested_at &&
+            Date.now() - new Date(x.requested_at) < 2 * 864e5);
+          doc.shipments.push({
+            order_id: s.order_id, carrier: carrier.value.trim(),
+            tracking: trackingNo,
+            requested_at: new Date().toISOString() });
+        }, `Dashboard: confirm shipment ${s.order_id}`);
+        status.textContent = "✅ Committed — the pipeline POSTs the " +
+          "confirmation to Amazon within ~30s while serve is up; the row " +
+          "flips once it lands.";
+        confirmBtn.replaceWith(el("button", {
+          class: "btn ghost", onclick: () => dialog.close() }, "Done"));
+      } catch (e) {
+        status.textContent = `Failed: ${e.message}`;
+        if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+        confirmBtn.removeAttribute("disabled");
+      }
+    });
+    dialog.replaceChildren(
+      el("h3", {}, "Confirm shipment"),
+      el("p", { class: "meta" },
+        `Amazon order ${s.order_id}${s.title ? ` — ${s.title}` : ""}. ` +
+        "Buy the courier label first, then enter its details; the " +
+        "pipeline calls the Orders API confirmShipment." +
+        (s.latest_ship_date
+          ? ` Ship-by date: ${fmtDate(s.latest_ship_date)}.` : "")),
+      carrier, tracking,
+      confirmBtn, " ",
+      el("button", { class: "btn ghost", onclick: () => dialog.close() },
+        "Close"),
+      status);
+    dialog.showModal();
+  });
 }
 
 /* What's actually live under the Takealot account (GET /offers mirror):
