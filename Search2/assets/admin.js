@@ -89,6 +89,9 @@ function render(data) {
   // --- buyer-message watch (mailbox SLA clocks) ---
   if (data.buyer_messages) root.append(messagesPanel(data.buyer_messages));
 
+  // --- account health (seller-performance metrics vs limits) ---
+  if (data.account_health) root.append(healthPanel(data.account_health));
+
   // --- selling kill switches (Amazon listings + Takealot offers) ---
   root.append(sellingPanel(data));
 
@@ -1076,6 +1079,105 @@ function messagesPanel(bm) {
   }
   body.append(status);
   return panel(`Buyer messages (${unhandled.length} open)`, body);
+}
+
+/* Account health (services/account_health.py): the daily
+   GET_V2_SELLER_PERFORMANCE_REPORT mirror of Amazon's Account Health
+   dashboard — metric vs limit, AHR, claim/chargeback backstop counts —
+   plus honest Takealot PROXIES (no metrics API exists there). Alarms ride
+   the attention queue; this panel is the always-visible gauge. */
+function healthPanel(ah) {
+  const body = el("div", {});
+
+  if (ah.role_denied_at) {
+    body.append(el("div", { class: "chip warning" },
+      el("span", { class: "dot" }),
+      "report denied — app lacks the “Selling Partner Insights” role"),
+      el("div", { class: "hint" },
+        "Developer Central → app → tick Selling Partner Insights → " +
+        "re-authorize → swap AMAZON_REFRESH_TOKEN in .env (same dance as " +
+        "the Finances role). The poller recovers on its own."));
+  } else if (!ah.polled_at) {
+    body.append(el("div", { class: "chip neutral" },
+      el("span", { class: "dot" }),
+      ah.pending_report_id
+        ? "first report requested — Amazon is generating it"
+        : "no report collected yet"));
+  }
+  if (ah.last_error) {
+    body.append(el("div", { class: "hint" }, `last error: ${ah.last_error}`));
+  }
+
+  if (ah.polled_at) {
+    const chips = el("div", { style: "margin-bottom:8px" });
+    for (const s of ah.account_statuses || []) {
+      chips.append(el("span", {
+        class: `chip ${s.status === "NORMAL" ? "good" : "bad"}`,
+        style: "margin-right:8px",
+      }, el("span", { class: "dot" }), `account ${s.status || "?"}`));
+    }
+    if (ah.ahr_status) {
+      const fine = ["GREAT", "GOOD", "NORMAL", "HEALTHY"]
+        .includes(ah.ahr_status.toUpperCase());
+      chips.append(el("span", {
+        class: `chip ${fine ? "good" : "bad"}`, style: "margin-right:8px",
+      }, el("span", { class: "dot" }), `AHR ${ah.ahr_status}` +
+        (ah.ahr_score != null ? ` (${ah.ahr_score})` : "")));
+    }
+    for (const v of ah.violations || []) {
+      chips.append(el("span", { class: "chip bad", style: "margin-right:8px" },
+        el("span", { class: "dot" }),
+        `${v.label}: ${v.count ?? v.status}`));
+    }
+    for (const [key, label] of [["claims", "A-to-Z claims"],
+                                ["chargebacks", "chargebacks"]]) {
+      const count = ah[key]?.count;
+      if (count != null) {
+        chips.append(el("span", {
+          class: `chip ${count > 0 ? "bad" : "good"}`,
+          style: "margin-right:8px",
+        }, el("span", { class: "dot" }), `${count} ${label}`));
+      }
+    }
+    body.append(chips);
+
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "metric"), el("th", {}, "value"),
+         el("th", {}, "limit"), el("th", {}, "state")));
+    for (const m of ah.metrics || []) {
+      table.append(el("tr", {},
+        el("td", { class: "t" }, m.label),
+        el("td", {}, m.percent != null ? `${m.percent}%` : "—"),
+        el("td", { class: "t" },
+          `${m.direction === "min" ? "≥" : "<"} ${m.limit_percent}%`),
+        el("td", {}, m.alarm
+          ? el("span", { class: `chip ${m.alarm === "critical" ? "bad" : "warning"}` },
+              el("span", { class: "dot" }), m.alarm)
+          : (m.percent != null
+              ? el("span", { class: "chip good" },
+                  el("span", { class: "dot" }), m.status || "ok")
+              : el("span", { class: "t" }, "no data")))));
+    }
+    body.append(el("div", { class: "scroll-x" }, table));
+    body.append(el("div", { class: "hint" },
+      `report collected ${fmtAgo(ah.polled_at)} — Account Health data ` +
+      "refreshes roughly daily on Amazon's side."));
+  }
+
+  const tk = ah.takealot || {};
+  body.append(el("div", { style: "margin-top:10px" },
+    el("b", {}, "Takealot (proxies — no metrics API)")),
+    el("div", { class: "meta" },
+      `fortnight: ${tk.fortnight_orders ?? 0} orders, ` +
+      `${tk.fortnight_cancels ?? 0} cancelled` +
+      (tk.cancel_percent != null
+        ? ` (${tk.cancel_percent}% vs ≤${tk.cancel_limit_percent}% SLA, ` +
+          "R50 penalty per cancelled leadtime order)"
+        : "") +
+      ` · ${tk.returned_units_30d ?? 0} unit(s) returned in 30d`),
+    el("div", { class: "hint" }, tk.returns_note || ""));
+
+  return panel("Account health", body);
 }
 
 /* Compact tracking cell: newest event + age, full detail on hover.
