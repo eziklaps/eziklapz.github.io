@@ -251,10 +251,11 @@ const APPS_DASHBOARD_URL = "https://sellercentral.amazon.co.za/hz/myqdashboard";
 function todosPanel(todos) {
   const exemptions = todos.exemptions || [];
   const restricted = todos.restricted || [];
+  const compliance = todos.compliance || [];
   const body = el("div", {});
   const status = el("div", { class: "hint", style: "margin-top:8px" });
 
-  if (!exemptions.length && !restricted.length) {
+  if (!exemptions.length && !restricted.length && !compliance.length) {
     body.append(el("div", { class: "chip good" }, el("span", { class: "dot" }),
       "nothing awaiting manual approval"));
   }
@@ -311,6 +312,49 @@ function todosPanel(todos) {
     body.append(el("div", { class: "hint" },
       "Auto-granted ones cost one click; invoice-walled ones can be skipped " +
       "— the 24h re-poll unblocks and requeues granted ASINs by itself."));
+  }
+
+  /* ZA compliance decisions (services/compliance.py): blocked = a
+     regulator's approval is legally required (score hard-gated to 0),
+     review = elevated CPA-s61 liability, informational. "Mark cleared"
+     records approval-obtained / risk-accepted / classifier-wrong on the
+     bus — the gate lifts and parked intents un-park on their own. */
+  if (compliance.length) {
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "asin"), el("th", {}, "risk"),
+         el("th", {}, "needs / flags"), el("th", {}, "why"),
+         el("th", {}, "score"), el("th", {}, "")));
+    for (const c of compliance) {
+      const needs = [...(c.requires || []), ...(c.flags || [])]
+        .map((k) => k.replace(/_/g, " ")).join(", ");
+      table.append(el("tr", {},
+        el("td", { class: "t" }, el("a", {
+          href: `https://www.amazon.co.za/dp/${c.asin}`,
+          target: "_blank", rel: "noopener",
+        }, c.asin)),
+        el("td", {}, el("span", {
+          class: `chip ${c.risk === "blocked" ? "bad" : "warning"}`,
+        }, el("span", { class: "dot" }), c.risk)),
+        el("td", { class: "t" }, needs || "—"),
+        el("td", { class: "t" }, c.reason || "—"),
+        el("td", {}, c.score != null ? String(Math.round(c.score)) : "—"),
+        el("td", {}, el("button", {
+          class: "btn ghost",
+          onclick: () => commitEntry({
+            compliance_clear: c.asin,
+            requested_at: new Date().toISOString(),
+          }, `clear ${c.asin}`, status),
+        }, "✓ Mark cleared"))));
+    }
+    body.append(el("div", { style: "margin-top:10px" },
+      el("b", {}, "ZA compliance (ICASA / NRCS / liability)")),
+      el("div", { class: "scroll-x" }, table),
+      el("div", { class: "hint" },
+        "blocked = illegal to sell without the approval (ICASA radio / " +
+        "NRCS mains LOA) — the pipeline zero-scores it until cleared; " +
+        "review = sellable but you carry CPA s61 importer liability. " +
+        "“Mark cleared” = approval obtained, risk accepted, or the " +
+        "classifier got it wrong."));
   }
 
   const footer = el("div", { style: "margin-top:10px" });
