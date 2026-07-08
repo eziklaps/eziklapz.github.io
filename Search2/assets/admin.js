@@ -86,6 +86,12 @@ function render(data) {
   // --- selling kill switches (Amazon listings + Takealot offers) ---
   root.append(sellingPanel(data));
 
+  // --- accounting: monthly P&L + tax gauges (transactions ledger) ---
+  if (data.accounting) root.append(accountingPanel(data.accounting));
+
+  // --- uploaded documents (receipts/invoices/customs → ledger) ---
+  root.append(docsPanel(data.accounting || {}));
+
   // --- snapshot sweep status ---
   if (data.sweep) root.append(sweepPanel(data.sweep));
 
@@ -636,6 +642,236 @@ function todosPanel(data) {
   body.append(footer);
 
   return panel("Seller Central to-dos", body);
+}
+
+/* Accounting: monthly per-channel P&L off the transactions ledger, the
+   rolling VAT-threshold gauge, the IRP6 provisional-tax numbers and the
+   newest ledger rows. Data comes from metrics._accounting_summary();
+   everything here is read-only — money entries happen via the Documents
+   panel below or scripts/accounting_admin.py. */
+function accountingPanel(acc) {
+  const body = el("div", {});
+  const pnl = acc.pnl || [];
+  const current = pnl[pnl.length - 1] || {};
+  const supplies = acc.supplies_12mo || {};
+  const irp6 = acc.irp6 || {};
+
+  if (acc.finances?.role_denied_at) {
+    body.append(el("div", { class: "chip serious", style: "margin-bottom:10px" },
+      el("span", { class: "dot" }),
+      "Amazon Finances denied — grant the SP-API app the 'Finance and " +
+      "Accounting' role in Seller Central; settlement actuals are missing " +
+      "until then"));
+  }
+
+  const pct = Math.round((supplies.fraction || 0) * 100);
+  body.append(el("div", { class: "grid tiles" },
+    tile("Net this month", fmtR(current.net ?? 0),
+      current.estimate_rand
+        ? `${fmtR(current.estimate_rand)} of it rests on estimates`
+        : "actuals only"),
+    tile("VAT threshold", `${pct}%`,
+      `${fmtR(supplies.total_rand)} of ${fmtR(supplies.threshold_rand)} ` +
+      `· rolling 12mo supplies` + (acc.vat_registered ? " · REGISTERED" : "")),
+    tile(irp6.next_deadline_label || "IRP6",
+      irp6.days_to_deadline != null ? `${irp6.days_to_deadline}d` : "—",
+      `YTD profit ${fmtR(irp6.ytd_profit_rand)} · ` +
+      `annualised ${fmtR(irp6.annualised_rand)} (tax year ${irp6.tax_year ?? "—"})`),
+    tile("Ledger rows", fmtNum(acc.ledger_rows || 0),
+      acc.finances?.events_polled_at
+        ? `finances polled ${fmtAgo(acc.finances.events_polled_at)}`
+        : "Amazon Finances not yet polled"),
+  ));
+
+  if (pnl.length) {
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "month"), el("th", {}, "amazon"),
+         el("th", {}, "takealot"), el("th", {}, "fees"),
+         el("th", {}, "cogs"), el("th", {}, "expenses"),
+         el("th", {}, "net")));
+    for (const m of [...pnl].reverse()) {
+      table.append(el("tr", {},
+        el("td", { class: "t" }, m.month + (m.estimate_rand ? " ~" : "")),
+        el("td", {}, fmtR(m.revenue?.amazon)),
+        el("td", {}, fmtR(m.revenue?.takealot)),
+        el("td", {}, fmtR(m.fees)),
+        el("td", {}, fmtR(m.cogs?.total)),
+        el("td", {}, fmtR(m.expenses)),
+        el("td", {}, fmtR(m.net))));
+    }
+    body.append(el("div", { class: "scroll-x", style: "margin-top:10px" }, table),
+      el("div", { class: "hint" },
+        "~ = month includes estimated rows (AliExpress supplier costs post " +
+        "as order-time ZAR estimates — no settled-amount API)."));
+  }
+
+  if ((acc.recent || []).length) {
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "when"), el("th", {}, "account"),
+         el("th", {}, "description"), el("th", {}, "amount"),
+         el("th", {}, "basis")));
+    for (const r of acc.recent) {
+      table.append(el("tr", {},
+        el("td", { class: "t" }, fmtDate(r.posted_at)),
+        el("td", { class: "t" }, `${r.account} ${r.account_name ?? ""}`),
+        el("td", { class: "t" }, r.description ?? ""),
+        el("td", {}, fmtR(r.amount)),
+        el("td", { class: "t" }, r.basis ?? "")));
+    }
+    body.append(el("div", { class: "hint", style: "margin-top:10px" },
+      "newest ledger rows:"),
+      el("div", { class: "scroll-x" }, table));
+  }
+  return panel("Accounting", body);
+}
+
+/* Documents: upload receipts/invoices/customs paperwork → the Worker's R2
+   transit → the pipeline drains them to the local canonical store (SARS:
+   records live in SA), Gemini extracts the fields, and the suggested
+   ledger rows wait HERE for review — Post/Ignore write accounting.
+   post_docs / ignore_docs entries onto the command bus. Nothing posts
+   without a click. */
+const DOC_STATUS_CHIP = {
+  new: "neutral", extracted: "warning", posted: "good",
+  ignored: "neutral", extract_failed: "serious",
+};
+
+function docsPanel(acc) {
+  const body = el("div", {});
+  const status = el("div", { class: "hint", style: "margin-top:8px" });
+
+  if (!localStorage.getItem(PAT_KEY)) {
+    body.append(el("p", { class: "hint" },
+      "Paste the token under Remote control to upload and review documents."));
+    return panel("Documents", body);
+  }
+
+  const transit = el("div", { class: "hint", style: "margin-top:6px" });
+  async function loadTransit() {
+    try {
+      const resp = await fetch(`${LIVE_BASE}/api/docs`,
+        { headers: liveHeaders(), cache: "no-store" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const docs = (await resp.json()).docs || [];
+      transit.textContent = docs.length
+        ? `in transit, awaiting drain: ${docs.map((d) => d.name).join(", ")}`
+        : "";
+    } catch (e) { transit.textContent = ""; }
+  }
+  loadTransit();
+
+  async function upload(files) {
+    let done = 0;
+    for (const file of files) {
+      status.textContent = `Uploading ${file.name}…`;
+      try {
+        const resp = await fetch(`${LIVE_BASE}/api/docs`, {
+          method: "POST",
+          headers: { ...liveHeaders(),
+                     "content-type": file.type || "application/octet-stream",
+                     "x-doc-name": encodeURIComponent(file.name) },
+          body: file,
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        done++;
+      } catch (e) {
+        status.textContent = `Upload of ${file.name} failed: ${e.message}`;
+        if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+        return;
+      }
+    }
+    try {
+      // The stamp wakes serve's long-poll, so the drain + extraction run
+      // within seconds instead of on the backstop timer.
+      await mutateCommands((doc) => {
+        doc.docs = { ...(doc.docs || {}),
+                     uploaded_at: new Date().toISOString() };
+      }, "Dashboard: documents uploaded");
+      status.textContent = `${done} file(s) uploaded — the pipeline drains ` +
+        "and extracts within seconds ('serve' must be up).";
+    } catch (e) {
+      status.textContent = `${done} file(s) uploaded — wake-up stamp failed ` +
+        `(${e.message}); the backstop drain picks them up within ~5 min.`;
+    }
+    loadTransit();
+  }
+
+  const input = el("input", {
+    type: "file", multiple: "", accept: ".pdf,.jpg,.jpeg,.png,.webp",
+    style: "max-width:100%",
+    onchange: (ev) => {
+      if (ev.target.files?.length) upload([...ev.target.files]);
+      ev.target.value = "";
+    },
+  });
+  body.append(
+    el("div", {}, input),
+    el("div", { class: "hint" },
+      "PDF/JPG/PNG/WEBP up to 25 MB — receipts, supplier invoices, customs " +
+      "paperwork (SAD 500 / clearance), courier invoices, statements."),
+    transit);
+
+  async function decide(id, action) {
+    status.textContent = `${action} ${id}…`;
+    try {
+      await mutateCommands((doc) => {
+        const bucket = (doc.accounting ??= {});
+        const key = action === "post" ? "post_docs" : "ignore_docs";
+        const fresh = (bucket[key] || []).filter((e) => e.id !== id &&
+          Date.now() - new Date(e.requested_at).getTime() < 48 * 3600 * 1000);
+        fresh.push({ id, requested_at: new Date().toISOString() });
+        bucket[key] = fresh;
+      }, `Dashboard: ${action} document ${id}`);
+      status.textContent =
+        `${action} sent for ${id} — applied within ~30s ('serve' must be up).`;
+    } catch (e) {
+      status.textContent = `${action} failed: ${e.message}`;
+      if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+    }
+  }
+
+  const docs = acc.documents || [];
+  if (docs.length) {
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "file"), el("th", {}, "status"),
+         el("th", {}, "read as"), el("th", {}, "suggested rows"),
+         el("th", {}, ""), el("th", {}, "")));
+    for (const d of docs) {
+      const read = d.doc_type
+        ? `${d.doc_type} — ${d.supplier ?? "?"}` +
+          (d.total_amount != null
+            ? ` · ${d.currency ?? ""} ${fmtNum(d.total_amount)}` : "") +
+          (d.confidence != null
+            ? ` · conf ${Math.round(d.confidence * 100)}%` : "")
+        : (d.error ?? "—");
+      const suggested = (d.suggested || [])
+        .map((s) => `${s.account}: ${fmtR(s.amount)} — ${s.description ?? ""}`)
+        .join("; ");
+      table.append(el("tr", {},
+        el("td", { class: "t" }, d.filename ?? d.id),
+        el("td", { class: "t" },
+          el("span", { class: `chip ${DOC_STATUS_CHIP[d.status] || "neutral"}` },
+            el("span", { class: "dot" }), d.status)),
+        el("td", { class: "t" }, read),
+        el("td", { class: "t" }, suggested || "—"),
+        el("td", { class: "t" }, d.status === "extracted"
+          ? el("button", { class: "btn",
+                           onclick: () => decide(d.id, "post") },
+              "Post to ledger")
+          : ""),
+        el("td", { class: "t" },
+          ["extracted", "extract_failed", "new"].includes(d.status)
+            ? el("button", { class: "btn ghost",
+                             onclick: () => decide(d.id, "ignore") }, "Ignore")
+            : "")));
+    }
+    body.append(el("div", { class: "scroll-x", style: "margin-top:10px" }, table));
+  } else {
+    body.append(el("div", { class: "chip neutral", style: "margin-top:10px" },
+      el("span", { class: "dot" }), "no documents drained yet"));
+  }
+  body.append(status);
+  return panel("Documents", body);
 }
 
 /* Compact tracking cell: newest event + age, full detail on hover.
