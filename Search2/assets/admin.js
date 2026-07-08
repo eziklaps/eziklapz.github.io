@@ -89,6 +89,9 @@ function render(data) {
   // --- selling kill switches (Amazon listings + Takealot offers) ---
   root.append(sellingPanel(data));
 
+  // --- Takealot webhook deliveries (edge receiver → serve drain) ---
+  if (data.takealot_events) root.append(takealotEventsPanel(data.takealot_events));
+
   // --- accounting: monthly P&L + tax gauges (transactions ledger) ---
   if (data.accounting) root.append(accountingPanel(data.accounting));
 
@@ -927,6 +930,33 @@ function attentionPanel(items) {
   }
   body.append(el("div", { class: "scroll-x" }, table));
   return panel(`Logistics attention (${items.length})`, body);
+}
+
+/* Takealot webhook pipe: the Worker's edge receiver parks deliveries in
+   Durable Object storage; serve drains them into the takealot_events
+   collection every 15 min (delivery-id dedupe, then checkpoint-ack).
+   Signals + audit trail only — GET /sales polling stays authoritative. */
+function takealotEventsPanel(ev) {
+  const body = el("div", {});
+  if (!(ev.recent || []).length) {
+    body.append(el("div", { class: "chip neutral" },
+      el("span", { class: "dot" }),
+      "no webhook deliveries yet — the pipe wakes up with the first live " +
+      "offer event (webhook must be Active in the Seller Portal)"));
+    return panel("Takealot webhooks", body);
+  }
+  const table = el("table", { class: "data" },
+    el("tr", {}, el("th", {}, "event"), el("th", {}, "verified"),
+       el("th", {}, "received"), el("th", {}, "drained")));
+  for (const e of ev.recent) {
+    table.append(el("tr", {},
+      el("td", { class: "t", title: e.delivery }, e.event || "?"),
+      el("td", {}, e.verified ? "✅" : "⚠️ unsigned"),
+      el("td", { class: "t" }, fmtAgo(e.received_at)),
+      el("td", { class: "t" }, fmtAgo(e.drained_at))));
+  }
+  body.append(el("div", { class: "scroll-x" }, table));
+  return panel(`Takealot webhooks (${fmtNum(ev.total)} total)`, body);
 }
 
 /* Compact tracking cell: newest event + age, full detail on hover.
