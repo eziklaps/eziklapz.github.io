@@ -86,6 +86,9 @@ function render(data) {
   // --- logistics attention queue (dispute windows, stalled packages) ---
   if (Array.isArray(data.attention)) root.append(attentionPanel(data.attention));
 
+  // --- buyer-message watch (mailbox SLA clocks) ---
+  if (data.buyer_messages) root.append(messagesPanel(data.buyer_messages));
+
   // --- selling kill switches (Amazon listings + Takealot offers) ---
   root.append(sellingPanel(data));
 
@@ -991,6 +994,88 @@ function takealotEventsPanel(ev) {
   }
   body.append(el("div", { class: "scroll-x" }, table));
   return panel(`Takealot webhooks (${fmtNum(ev.total)} total)`, body);
+}
+
+/* Buyer-message watch (services/messaging.py): Amazon has NO API to read
+   buyer messages, so serve polls the seller mailbox over IMAP for the
+   notification emails (buyer alias @marketplace.amazon.*, A-to-Z notices)
+   and clocks the 24h/72h SLAs. Replying FROM the mailbox auto-handles a
+   message (IMAP \Answered); "Mark handled" covers Seller-Central replies. */
+function messagesPanel(bm) {
+  const body = el("div", {});
+  const status = el("div", { class: "hint", style: "margin-top:8px" });
+
+  if (!bm.configured) {
+    body.append(
+      el("div", { class: "chip warning" }, el("span", { class: "dot" }),
+        "mailbox watch OFF — buyer messages are only visible in email/Seller " +
+        "Central"),
+      el("div", { class: "hint" },
+        "Enable it on the pipeline machine: Gmail → 2-Step Verification → " +
+        "App passwords → add MESSAGES_IMAP_USER and MESSAGES_IMAP_PASSWORD " +
+        "to .env, then restart serve. Amazon's reply SLA is 24h, A-to-Z " +
+        "evidence ~72h — this panel is the tripwire."));
+    return panel("Buyer messages", body);
+  }
+  if (bm.auth_failed_at) {
+    body.append(el("div", { class: "chip bad" }, el("span", { class: "dot" }),
+      `mailbox login FAILING since ${fmtAgo(bm.auth_failed_at)} — ` +
+      `${bm.auth_error || "check the app password"}`));
+  }
+
+  const unhandled = bm.unhandled || [];
+  if (!unhandled.length) {
+    body.append(el("div", { class: "chip good" }, el("span", { class: "dot" }),
+      `no unhandled messages · polled ${fmtAgo(bm.polled_at)}`));
+  } else {
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "kind"), el("th", {}, "from"),
+         el("th", {}, "subject"), el("th", {}, "received"),
+         el("th", {}, "respond by"), el("th", {}, "")));
+    for (const m of unhandled) {
+      table.append(el("tr", {},
+        el("td", {}, el("span", {
+          class: `chip ${m.kind === "a_to_z" ? "bad" : "warning"}`,
+        }, el("span", { class: "dot" }), (m.kind || "?").replace(/_/g, " "))),
+        el("td", { class: "t" }, m.from || "—"),
+        el("td", { class: "t", title: m.snippet || "" }, m.subject || "—"),
+        el("td", { class: "t" }, fmtAgo(m.received_at)),
+        el("td", { class: "t" }, m.sla_deadline ? fmtDate(m.sla_deadline) : "—"),
+        el("td", {}, el("button", {
+          class: "btn ghost",
+          onclick: async () => {
+            status.textContent = `marking ${m.id} handled…`;
+            try {
+              await mutateCommands((doc) => {
+                const fresh = (doc.messages || []).filter((e) =>
+                  e.id !== m.id && e.requested_at &&
+                  Date.now() - new Date(e.requested_at).getTime() < 48 * 3600 * 1000);
+                fresh.push({ id: m.id, handled: true,
+                             requested_at: new Date().toISOString() });
+                doc.messages = fresh;
+              }, `Dashboard: message ${m.id} handled`);
+              status.textContent =
+                `${m.id} marked handled — applied within ~30s ('serve' must be up).`;
+            } catch (e) {
+              status.textContent = `mark handled failed: ${e.message}`;
+              if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+            }
+          },
+        }, "✓ Mark handled"))));
+    }
+    body.append(el("div", { class: "scroll-x" }, table));
+    body.append(el("div", { class: "hint" },
+      "Reply from the mailbox (routes back through Amazon and stops the " +
+      "clock automatically) or in Seller Central — then Mark handled here."));
+  }
+
+  for (const m of bm.recent_handled || []) {
+    body.append(el("span", { class: "chip good", style: "margin-right:8px" },
+      el("span", { class: "dot" }),
+      `${(m.kind || "?").replace(/_/g, " ")} handled (${m.handled_by}) ${fmtAgo(m.handled_at)}`));
+  }
+  body.append(status);
+  return panel(`Buyer messages (${unhandled.length} open)`, body);
 }
 
 /* Compact tracking cell: newest event + age, full detail on hover.
