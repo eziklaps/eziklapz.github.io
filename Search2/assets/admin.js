@@ -83,6 +83,9 @@ function render(data) {
   // --- ordering ---
   root.append(ordersPanel(data));
 
+  // --- logistics attention queue (dispute windows, stalled packages) ---
+  if (Array.isArray(data.attention)) root.append(attentionPanel(data.attention));
+
   // --- selling kill switches (Amazon listings + Takealot offers) ---
   root.append(sellingPanel(data));
 
@@ -872,6 +875,41 @@ function docsPanel(acc) {
   }
   body.append(status);
   return panel("Documents", body);
+}
+
+/* Logistics attention queue (services/logistics.attention_items): placed
+   orders that need a human decision, worst first. Every row is an action
+   with a deadline — the dispute-window ones are the money ones: after the
+   buyer-protection window closes a refund is impossible, so they escalate
+   to critical at 5 days out. */
+function attentionPanel(items) {
+  const body = el("div", {});
+  if (!items.length) {
+    body.append(el("div", { class: "chip good" }, el("span", { class: "dot" }),
+      "no orders need attention"));
+    return panel("Logistics attention", body);
+  }
+  const table = el("table", { class: "data" },
+    el("tr", {}, el("th", {}, "issue"), el("th", {}, "order"),
+       el("th", {}, "asin"), el("th", {}, "what to do"),
+       el("th", {}, "act by")));
+  for (const it of items) {
+    const order = it.ae_order_ids?.[0];
+    table.append(el("tr", {},
+      el("td", {}, el("span", { class: `chip ${it.severity || "neutral"}` },
+        el("span", { class: "dot" }), (it.kind || "?").replace(/_/g, " "))),
+      el("td", { class: "t" }, order
+        ? el("a", {
+            href: `https://www.aliexpress.com/p/order/detail.html?orderId=${order}`,
+            target: "_blank", rel: "noopener", title: it.intent_id,
+          }, `AE ${order} ↗`)
+        : it.intent_id),
+      el("td", { class: "t" }, it.asin ?? "—"),
+      el("td", { class: "t" }, it.message),
+      el("td", { class: "t" }, it.act_by ? fmtDate(it.act_by) : "—")));
+  }
+  body.append(el("div", { class: "scroll-x" }, table));
+  return panel(`Logistics attention (${items.length})`, body);
 }
 
 /* Compact tracking cell: newest event + age, full detail on hover.
