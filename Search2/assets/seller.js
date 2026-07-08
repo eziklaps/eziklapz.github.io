@@ -370,6 +370,7 @@ function amazonTab(root, data) {
     }, "Queue listing intent")),
     status);
   root.append(panel("Amazon listing intents", body));
+  root.append(salesPanel(az.sales, "Amazon"));
 }
 
 /* ---- Takealot tab ---- */
@@ -478,32 +479,111 @@ function takealotTab(root, data) {
   body.append(status);
   root.append(panel("Takealot listing intents", body));
 
-  // Sales: shape reserved for the /sales poller — lights up on its own
-  // once the first live offer sells.
-  const sales = tk.sales;
-  const salesBody = el("div", {});
-  if (sales && (sales.recent || []).length) {
+  root.append(accountPanel(tk.account));
+  root.append(salesPanel(tk.sales, "Takealot"));
+}
+
+/* Own-channel sales (services/own_sales.py polls both seller APIs every
+   6h): counts + newest rows, or an honest "checked Xh ago — nothing sold
+   yet" while the ledger is empty. */
+function salesPanel(sales, label) {
+  const body = el("div", {});
+  const counts = (sales || {}).counts || {};
+  const recent = (sales || {}).recent || [];
+  if (Object.keys(counts).length) {
+    const chips = el("div", { style: "margin-bottom:10px" });
+    for (const [state, n] of Object.entries(counts)) {
+      chips.append(el("span", { class: "chip good", style: "margin-right:8px" },
+        el("span", { class: "dot" }), `${state}: ${n}`));
+    }
+    body.append(chips);
+  }
+  if (recent.length) {
     const table = el("table", { class: "data" },
       el("tr", {}, el("th", {}, "order"), el("th", {}, "product"),
          el("th", {}, "qty"), el("th", {}, "price"), el("th", {}, "state"),
          el("th", {}, "when")));
-    for (const s of sales.recent) {
+    for (const s of recent) {
       table.append(el("tr", {},
         el("td", { class: "t" }, s.order_id),
-        el("td", { class: "t" }, s.title || s.sku),
+        el("td", { class: "t" }, s.title || s.sku || "—"),
         el("td", {}, fmtNum(s.quantity)),
         el("td", {}, fmtR(s.selling_price)),
-        el("td", { class: "t" }, s.state),
+        el("td", { class: "t" }, s.state ?? "—"),
         el("td", { class: "t" }, fmtAgo(s.ordered_at))));
     }
-    salesBody.append(el("div", { class: "scroll-x" }, table));
+    body.append(el("div", { class: "scroll-x" }, table));
   } else {
-    salesBody.append(el("div", { class: "chip neutral" },
+    body.append(el("div", { class: "chip neutral" },
       el("span", { class: "dot" }),
-      "no sales yet — this panel lights up once the first live offer " +
-      "sells (webhook + /sales poll land here)"));
+      (sales || {}).polled_at
+        ? `nothing sold yet — ${label} checked ${fmtAgo(sales.polled_at)}`
+        : `no sales data yet — the 'sales' poll runs every 6h once serve ` +
+          "is on the new code"));
   }
-  root.append(panel("Sales", salesBody));
+  return panel(`Sales — ${label}`, body);
+}
+
+/* What's actually live under the Takealot account (GET /offers mirror):
+   buyable count, disabled offers, wishlist demand, low-stock flags (stock
+   fields appear once offers carry warehouse stock). */
+const OFFER_STATUS_CHIP = {
+  buyable: "good", not_buyable: "warning",
+  disabled_by_seller: "neutral", disabled_by_takealot: "serious",
+};
+
+function accountPanel(account) {
+  const body = el("div", {});
+  if (!account) {
+    body.append(el("div", { class: "chip neutral" }, el("span", { class: "dot" }),
+      "not checked yet — the 'sales' poll mirrors the account's offer " +
+      "list every 6h"));
+    return panel("On Takealot (account offers)", body);
+  }
+  const chips = el("div", { style: "margin-bottom:10px" });
+  chips.append(el("span", { class: "chip good", style: "margin-right:8px" },
+    el("span", { class: "dot" }),
+    `${(account.counts || {}).buyable || 0} buyable of ${account.total} offers`));
+  for (const [status, n] of Object.entries(account.counts || {})) {
+    if (status === "buyable") continue;
+    chips.append(el("span", {
+      class: `chip ${OFFER_STATUS_CHIP[status] || "neutral"}`,
+      style: "margin-right:8px",
+    }, el("span", { class: "dot" }), `${status}: ${n}`));
+  }
+  body.append(chips);
+
+  for (const low of account.low_stock || []) {
+    body.append(el("div", { style: "margin-bottom:6px" },
+      el("span", { class: "chip serious" }, el("span", { class: "dot" }),
+        `LOW STOCK: ${low.title || low.sku} — ${low.stock} left`)));
+  }
+
+  if ((account.rows || []).length) {
+    const table = el("table", { class: "data" },
+      el("tr", {}, el("th", {}, "offer"), el("th", {}, "status"),
+         el("th", {}, "price"), el("th", {}, "stock"),
+         el("th", {}, "wishlist 30d"), el("th", {}, "returns 30d")));
+    for (const o of account.rows) {
+      table.append(el("tr", {},
+        el("td", { class: "t" }, o.url
+          ? el("a", { href: o.url, target: "_blank", rel: "noopener" },
+              o.title || o.sku)
+          : (o.title || o.sku)),
+        el("td", { class: "t" }, el("span", {
+          class: `chip ${OFFER_STATUS_CHIP[o.status] || "neutral"}`,
+        }, el("span", { class: "dot" }), o.status || "?")),
+        el("td", {}, fmtR(o.selling_price)),
+        el("td", {}, o.stock ?? "—"),
+        el("td", {}, fmtNum(o.wishlist_30d)),
+        el("td", {}, fmtNum(o.returned_30d))));
+    }
+    body.append(el("div", { class: "scroll-x" }, table));
+  }
+  body.append(el("div", { class: "hint", style: "margin-top:8px" },
+    `checked ${fmtAgo(account.checked_at)} — stock column fills once ` +
+    "offers carry warehouse stock (today's are leadtime-model)"));
+  return panel("On Takealot (account offers)", body);
 }
 
 /* The loadsheet CSV rides the encrypted payload — hand it to the browser

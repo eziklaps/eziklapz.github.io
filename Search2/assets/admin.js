@@ -86,6 +86,9 @@ function render(data) {
   // --- selling kill switches (Amazon listings + Takealot offers) ---
   root.append(sellingPanel(data));
 
+  // --- snapshot sweep status ---
+  if (data.sweep) root.append(sweepPanel(data.sweep));
+
   // --- Seller Central to-dos (manual approvals only Andrew can click) ---
   root.append(todosPanel(data));
 
@@ -487,6 +490,73 @@ function sellingPanel(data) {
   }
   body.append(status);
   return panel("Selling kill switches", body);
+}
+
+/* Snapshot sweep status: live phase + ETA while sweeping, last completion
+   with per-channel observation counts, next scheduled fire (daily 09:00
+   task; post-run sweeps fire earlier when the 12h gap allows), and the
+   recent completion history — one chip per swept day. */
+const SWEEP_PHASE_LABEL = {
+  rank: "rank pass (Amazon)", pricing: "pricing pass (Amazon)",
+  takealot: "Takealot pass",
+};
+
+function sweepPanel(sweep) {
+  const body = el("div", {});
+
+  if (sweep.running && sweep.phase) {
+    const done = sweep.phase_done || 0;
+    const total = sweep.phase_total || 1;
+    body.append(el("div", { style: "margin-bottom:8px" },
+      el("span", { class: "chip warning", style: "margin-right:10px" },
+        el("span", { class: "dot" }),
+        `sweeping — ${SWEEP_PHASE_LABEL[sweep.phase] || sweep.phase}`),
+      el("span", { class: "hint" },
+        `${fmtNum(done)}/${fmtNum(total)} chunks` +
+        (sweep.eta_seconds ? ` · ~${fmtDur(sweep.eta_seconds)} left in this phase` : "") +
+        (sweep.started_at ? ` · started ${fmtAgo(sweep.started_at)}` : ""))));
+    body.append(el("div", { class: "bars" }, el("div", { class: "row" },
+      el("div", { class: "name" }, sweep.phase),
+      el("div", { class: "track" },
+        el("div", { class: "fill",
+                    style: `width:${Math.max(2, (done / total) * 100)}%` })),
+      el("div", { class: "count" }, `${Math.round((done / total) * 100)}%`))));
+  } else if (sweep.state === "died mid-sweep") {
+    body.append(el("div", { class: "chip serious", style: "margin-bottom:8px" },
+      el("span", { class: "dot" }),
+      `sweep died mid-pass (no progress since ${fmtAgo(sweep.progress_at)}) — ` +
+      "the next scheduled sweep re-covers it"));
+  }
+
+  const tiles = el("div", { class: "grid tiles" },
+    tile("Last swept", sweep.last_completed_at
+      ? fmtAgo(sweep.last_completed_at) : "never",
+      sweep.asins ? `${fmtNum(sweep.asins)} ASINs` : null),
+    tile("Next due", sweep.running ? "running now" : fmtIn(sweep.next_due_at),
+      "daily 09:00 task; post-run sweeps fire earlier when the 12h gap allows"),
+    tile("Observations",
+      `${fmtNum((sweep.rank_observations || 0) + (sweep.pricing_observations || 0))}`,
+      `rank ${fmtNum(sweep.rank_observations)} · pricing ${fmtNum(sweep.pricing_observations)}` +
+      (sweep.takealot_observations != null
+        ? ` · takealot ${fmtNum(sweep.takealot_observations)}` : "")),
+  );
+  body.append(tiles);
+
+  if ((sweep.history || []).length) {
+    const days = el("div", { style: "margin-top:10px" });
+    for (const h of sweep.history.slice(0, 14)) {
+      days.append(el("span", {
+        class: "chip neutral", style: "margin-right:6px;margin-bottom:6px",
+        title: `${fmtNum(h.asins)} ASINs · rank ${fmtNum(h.rank)} · ` +
+               `pricing ${fmtNum(h.pricing)}` +
+               (h.takealot != null ? ` · takealot ${fmtNum(h.takealot)}` : "") +
+               (h.duration_minutes ? ` · ${h.duration_minutes} min` : ""),
+      }, el("span", { class: "dot" }), fmtDate(h.at)));
+    }
+    body.append(el("div", { class: "hint" }, "days swept (newest first):"), days);
+  }
+
+  return panel("Snapshot sweep", body);
 }
 
 /* Seller Central to-dos: the two manual approval queues the pipeline can
