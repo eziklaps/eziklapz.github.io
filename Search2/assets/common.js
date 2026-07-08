@@ -101,7 +101,9 @@ async function fetchJsonCached(name, onData) {
 
 const PASS_KEY = "s2pass";
 
-const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+// Ciphertext arrives newline-chunked (secret-scanner defence on the public
+// pages repo); strip whitespace rather than lean on atob's forgiving mode.
+const b64 = (s) => Uint8Array.from(atob(String(s).replace(/\s+/g, "")), (c) => c.charCodeAt(0));
 
 async function decryptEnvelope(envelope, passphrase) {
   const keyMaterial = await crypto.subtle.importKey(
