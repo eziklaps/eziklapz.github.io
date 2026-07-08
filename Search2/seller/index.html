@@ -14,7 +14,7 @@
   <div class="wrap">
     <div id="gate" class="gate">
       <h1>Seller</h1>
-      <p class="sub">Listings &amp; approvals — intents per channel, Seller Central to-dos, Takealot loadsheet and offer queue. Enter the passphrase to decrypt in your browser.</p>
+      <p class="sub">Listings &amp; approvals — queue offers per channel, requeue parked intents, Seller Central to-dos, Takealot loadsheet and offer queue. Enter the passphrase to decrypt in your browser.</p>
       <form id="gate-form">
         <input id="pass-input" type="password" placeholder="Passphrase" autocomplete="current-password" autofocus>
         <button type="submit" class="btn">Unlock</button>
@@ -31,12 +31,14 @@
       <nav id="tabs" class="tabs" hidden></nav>
       <div id="dash"></div>
       <footer class="page">
-        Read-only view — kill switches and run control live on
+        Listing actions commit to the command bus; nothing posts until the
+        .env switches arm. Kill switches and run control live on
         <a href="../admin/">admin</a> ·
         <a href="../buyer/">buyer</a> ·
         <a href="/">andrewwalsh.co.za</a>
       </footer>
     </div>
   </div>
+  <dialog id="act-modal" class="order-modal"></dialog>
 </body>
 </html>

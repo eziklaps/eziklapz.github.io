@@ -267,8 +267,40 @@ function productCard(p, index) {
           ? el("a", { href: p.takealot_url, target: "_blank", rel: "noopener" }, "Takealot ↗") : null,
         p.aliexpress_url ? el("a", { href: p.aliexpress_url, target: "_blank", rel: "noopener" }, "AliExpress ↗") : null,
         isTakealot ? null : takealotMatchLink(p)),
+      sellStateLine(p),
       orderArea(p),
     ));
+}
+
+/* Read-only sell-side chips: what the SELLER page is doing with this
+   product per channel (listing actions live there — the chips link
+   through). The restock hint closes the loop: stock was bought, the
+   listing is live, the next buy decision is the buyer's again. */
+const SELL_STATE_SHORT = {
+  pending: "queued", ready: "preparing", validated: "validated",
+  submitting: "submitting…", submitted: "submitted", live: "🟢 live",
+  loadsheet: "loadsheet", offer_ready: "offer queued",
+  blocked_exemption: "blocked: exemption", fix_required: "needs fix",
+  needs_review: "needs review", rejected: "rejected",
+};
+
+function sellStateLine(p) {
+  const chips = [];
+  const chip = (label, state, note) => el("a", {
+    class: "flagchip", href: "../seller/",
+    title: note ? `${label}: ${note}` : label,
+    style: "text-decoration:none",
+  }, `${label}: ${SELL_STATE_SHORT[state] || state}`);
+  if (p.listing) chips.push(chip("Amazon listing", p.listing.state, p.listing.note));
+  if (p.takealot) chips.push(chip("Takealot", p.takealot.state, p.takealot.note));
+  if (!chips.length) return null;
+  const anySold = p.order?.state === "placed";
+  const anyLive = p.listing?.state === "live" || p.takealot?.state === "live";
+  if (anySold && anyLive) {
+    chips.push(el("span", { class: "flagchip" },
+      "♻ selling live — consider restock"));
+  }
+  return el("div", { class: "flags" }, ...chips);
 }
 
 /* Cross-channel price check from the takealot-match stage (Amazon cards

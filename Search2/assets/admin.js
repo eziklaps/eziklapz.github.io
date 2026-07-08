@@ -83,6 +83,9 @@ function render(data) {
   // --- ordering ---
   root.append(ordersPanel(data));
 
+  // --- selling kill switches (Amazon listings + Takealot offers) ---
+  root.append(sellingPanel(data));
+
   // --- Seller Central to-dos (manual approvals only Andrew can click) ---
   root.append(todosPanel(data));
 
@@ -283,6 +286,9 @@ function controlsPanel(data) {
     ["takealot-match", "takealot-match — check winners against the Takealot catalog"],
     ["pull-takealot", "pull-takealot — Takealot demand discovery (keyword search intake)"],
     ["takealot-enrich", "takealot-enrich — offer stack + barcode for Takealot winners"],
+    ["restrictions", "restrictions — Amazon listing restrictions gate"],
+    ["listings", "listings — process Amazon listing intents (prepare + validate + submit)"],
+    ["takealot-listings", "takealot-listings — process Takealot intents (prepare + loadsheet + offers)"],
   ];
   const selectStyle = "padding:8px 10px;margin-right:8px;" +
     "border:1px solid var(--hairline);border-radius:8px;" +
@@ -433,6 +439,54 @@ function ordersPanel(data) {
   }
   body.append(status);
   return panel("Ordering", body);
+}
+
+/* Selling kill switches: the remote halves of the double switches guarding
+   channel submissions (services/listings.py reads commands.listing.enabled,
+   services/takealot.py reads commands.takealot.enabled). Same contract as
+   the ordering kill: tripping it stops submissions within ~30s; enabling
+   still needs the matching .env switch on the pipeline machine, so these
+   buttons can only ever make things safer. Queueing intents on the seller
+   page is unaffected either way — queued work just waits. */
+function sellingPanel(data) {
+  const body = el("div", {});
+  const status = el("div", { class: "hint", style: "margin-top:8px" });
+
+  if (!localStorage.getItem(PAT_KEY)) {
+    body.append(el("p", { class: "hint" },
+      "Paste the token under Remote control to use the kill switches."));
+    return panel("Selling kill switches", body);
+  }
+
+  async function setKill(key, label, enabled) {
+    const action = enabled ? `enable ${label}` : `KILL ${label}`;
+    status.textContent = `${action}…`;
+    try {
+      await mutateCommands((doc) => {
+        doc[key] = { ...(doc[key] || {}), enabled };
+      }, `Dashboard: ${action}`);
+      status.textContent = enabled
+        ? `${label} enabled remotely — submissions still need the .env ` +
+          "switch on the pipeline machine."
+        : `Kill switch tripped — ${label} submissions stop within ~30s. ` +
+          "Queued intents keep their state and wait.";
+    } catch (e) {
+      status.textContent = `${action} failed: ${e.message}`;
+      if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
+    }
+  }
+
+  for (const [key, label] of [["listing", "Amazon listings"],
+                              ["takealot", "Takealot offers"]]) {
+    body.append(el("div", { style: "margin-bottom:8px" },
+      el("button", { class: "btn", onclick: () => setKill(key, label, false) },
+        `🛑 Kill ${label}`),
+      " ",
+      el("button", { class: "btn ghost", onclick: () => setKill(key, label, true) },
+        `Re-enable ${label}`)));
+  }
+  body.append(status);
+  return panel("Selling kill switches", body);
 }
 
 /* Seller Central to-dos: the two manual approval queues the pipeline can
