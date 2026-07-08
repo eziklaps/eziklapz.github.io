@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Search2</title>
+  <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
+  <link rel="preconnect" href="https://m.media-amazon.com">
+  <link rel="preconnect" href="https://ae-pic-a1.aliexpress-media.com">
+  <link rel="preconnect" href="https://media.takealot.com">
+  <link rel="stylesheet" href="../assets/app.css">
+  <script src="../assets/common.js" defer></script>
+  <script src="../assets/app-today.js" defer></script>
+  <script src="../assets/app-buy.js" defer></script>
+  <script src="../assets/app-stock.js" defer></script>
+  <script src="../assets/app-sell.js" defer></script>
+  <script src="../assets/app-machine.js" defer></script>
+  <script src="../assets/app-books.js" defer></script>
+  <script src="../assets/app.js" defer></script>
+</head>
+<body>
+  <div id="app" hidden>
+    <div class="topbar" id="topbar"></div>
+    <div class="shell">
+      <nav class="rail" id="rail"></nav>
+      <div class="main"><div id="desk" class="desk"></div></div>
+    </div>
+  </div>
+
+  <div id="gate" class="gatewrap">
+    <div class="gatecard">
+      <div class="mark">S2</div>
+      <h1>Search2</h1>
+      <div class="sub">Encrypted end to end — the passphrase decrypts everything
+        in your browser and never leaves it.</div>
+      <form id="gate-form">
+        <input id="pass-input" type="password" placeholder="Passphrase"
+               autocomplete="current-password" autofocus>
+        <button type="submit" class="b pri wide" style="margin-top:10px">Unlock the desk</button>
+      </form>
+      <div class="err" id="gate-error"></div>
+      <div class="hint" style="margin-top:12px">remembered on this device · wrong passphrase re-locks</div>
+    </div>
+  </div>
+
+  <dialog id="modal" class="modal"></dialog>
+</body>
+</html>
