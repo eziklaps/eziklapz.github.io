@@ -29,6 +29,26 @@ function renderBooksDesk(root) {
       ((bank.gate || {}).reasons || []).join(" · ")));
   }
 
+  /* Sage bank feed pulse: auth failure / errors / staleness. Ages are
+     computed here at render time — the payload carries timestamps only. */
+  const feed = bank.feed || {};
+  const feedAgeDays = feed.synced_at
+    ? (Date.now() - new Date(feed.synced_at).getTime()) / 86400e3 : null;
+  if (feed.auth_failed_at) {
+    root.append(el("div", { class: "warnbar bad" },
+      "Sage bank feed auth FAILED — re-check SAGE_* credentials in .env " +
+      "(or the API key at developerselfservice.sageone.com), then " +
+      "accounting_admin.py sage sync."));
+  } else if (feed.error) {
+    root.append(el("div", { class: "warnbar" },
+      `Sage bank feed error: ${feed.error} — see accounting_admin.py sage.`));
+  } else if (feed.configured && feedAgeDays != null && feedAgeDays > 2) {
+    root.append(el("div", { class: "warnbar" },
+      `Sage bank feed hasn't synced in ${Math.floor(feedAgeDays)}d — the ` +
+      "Capitec link inside Sage may need a re-auth (Banking → refresh), " +
+      "or 'serve' is down. Balance evidence is aging toward gate RED."));
+  }
+
   /* awaiting payment + stock chips */
   const out = orders.outstanding || {};
   const inv = orders.inventory || {};
@@ -46,6 +66,13 @@ function renderBooksDesk(root) {
           class: "pill ok", style: "cursor:pointer",
           onclick: () => setDesk("stock"),
         }, `📥 ${fmtNum(inv.units)} units on hand — ${fmtR(inv.value_rand)} landed (estimate) · Stock desk →`)
+      : null,
+    feed.configured
+      ? (feed.synced_at
+          ? pill(feedAgeDays > 2 ? "warn" : "ok",
+              `🏦 Sage feed synced ${fmtAgo(feed.synced_at)}` +
+              (feed.lines_added ? ` · ${feed.lines_added} new` : ""))
+          : pill("warn", "🏦 Sage feed configured — first sync pending"))
       : null));
 
   /* cash-position cards (statement/manual as-of balances + float) */
@@ -289,8 +316,9 @@ function reconPanel(bank) {
       : (accounts.length ? pill("ok", "fully explained") : null),
   });
   if (!accounts.length) {
-    p.append(emptyLine("no statement lines yet — drop a Capitec/Shyft " +
-      "export on the Documents panel and the matcher takes it from there"));
+    p.append(emptyLine("no bank lines yet — the Sage feed lands Capitec " +
+      "lines automatically once connected; Shyft (or any bank) exports " +
+      "drop on the Documents panel and the matcher takes it from there"));
     return p;
   }
   for (const acct of accounts) {
