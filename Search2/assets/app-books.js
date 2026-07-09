@@ -1,14 +1,15 @@
-/* Books desk — money: monthly P&L off the transactions ledger, the VAT
-   threshold gauge, IRP6, the newest ledger rows, and the documents flow
-   (upload → drain → Gemini-extract → you post; nothing posts unreviewed).
-   Bookmarked for a later build (not in the pipeline yet): bank-statement
-   import + reconciliation workbench, cash-position cards, the
-   affordability gate, FX/fee-anomaly watch, evidence coverage, SARS
-   export pack. */
+/* Books desk — money: cash-position cards + the affordability gate +
+   the reconciliation workbench (bank statements ↔ ledger), monthly P&L
+   off the transactions ledger, the VAT threshold gauge, IRP6, the newest
+   ledger rows, and the documents flow (upload → drain → Gemini-extract →
+   you post; nothing posts unreviewed). Bookmarked for a later build:
+   FX/fee-anomaly watch, evidence coverage, SARS export pack,
+   order-to-cash strip. */
 
 function renderBooksDesk(root) {
   const a = S.admin || {};
   const acc = a.accounting || {};
+  const bank = a.banking || {};
   const orders = a.orders || {};
   const pnl = acc.pnl || [];
   const month = pnl[pnl.length - 1] || {};
@@ -21,6 +22,11 @@ function renderBooksDesk(root) {
     root.append(el("div", { class: "warnbar bad" },
       "Amazon Finances denied — grant the SP-API app the 'Finance and " +
       "Accounting' role in Seller Central; settlement actuals are missing until then."));
+  }
+  if (((bank.gate || {}).status) === "red") {
+    root.append(el("div", { class: "warnbar bad" },
+      "Affordability gate RED — order placements are held: " +
+      ((bank.gate || {}).reasons || []).join(" · ")));
   }
 
   /* awaiting payment + stock chips */
@@ -41,6 +47,9 @@ function renderBooksDesk(root) {
           onclick: () => setDesk("stock"),
         }, `📥 ${fmtNum(inv.units)} units on hand — ${fmtR(inv.value_rand)} landed (estimate) · Stock desk →`)
       : null));
+
+  /* cash-position cards (statement/manual as-of balances + float) */
+  root.append(cashStrip(bank));
 
   /* P&L KPI cards */
   const rev = month.revenue || {};
@@ -64,14 +73,283 @@ function renderBooksDesk(root) {
   }, left, right));
 
   left.append(pnlPanel(acc, pnl));
+  left.append(reconPanel(bank));
   left.append(ledgerPanel(acc));
+  right.append(gatePanel(bank));
   right.append(taxPanel(acc));
   right.append(docsPanelEl(acc));
 
   root.append(el("div", { class: "hint" },
-    "Bookmarked for a later build: bank-statement import & reconciliation, " +
-    "cash-position cards (Capitec / Shyft), the affordability gate, FX & " +
-    "fee-anomaly watch, evidence coverage and the SARS export pack."));
+    "Bookmarked for a later build: FX & fee-anomaly watch, evidence " +
+    "coverage, the SARS export pack and the order-to-cash strip."));
+}
+
+/* ---- Cash position: as-of balances per account + the estimated float.
+   No SA bank offers an API, so every number carries its age — the chip
+   tone follows the gate's staleness rule. 'confirm' stamps the balance
+   read off the banking app via the command bus. ---- */
+
+function fmtMoney(amount, currency) {
+  if (amount == null) return "—";
+  return (currency === "USD" ? "$ " : "R ") + Number(amount)
+    .toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function ageChip(ageDays, maxDays) {
+  if (ageDays == null) return pill("mute", "no evidence");
+  const tone = ageDays > maxDays ? "bad"
+    : ageDays * 2 > maxDays ? "warn" : "ok";
+  return pill(tone, ageDays === 0 ? "fresh today" : `${ageDays}d old`);
+}
+
+function confirmBalanceModal(account) {
+  withToken(() => {
+    const acctInput = account ? null : el("input", {
+      type: "text", class: "in wide", style: "margin:10px 0 0",
+      placeholder: "account id, e.g. capitec-zar / shyft-usd",
+    });
+    const input = el("input", {
+      type: "number", step: "0.01", class: "in wide",
+      style: "margin:10px 0 4px",
+      placeholder: "balance as the banking app shows it now",
+    });
+    const status = statusLine();
+    openModal(
+      el("h3", {}, account ? `Confirm ${account} balance` : "Confirm a balance"),
+      el("p", { class: "meta" },
+        "Read the balance off the banking app and stamp it — freshness is " +
+        "what the affordability gate trusts. Statements stay the richer source."),
+      acctInput, input,
+      el("button", {
+        class: "b pri wide", style: "margin-top:10px",
+        onclick: () => {
+          const acct = (account || (acctInput.value || "").trim().toLowerCase());
+          const amount = parseFloat(input.value);
+          if (!/^[a-z0-9]+(-[a-z0-9]+)*-[a-z]{3}$/.test(acct)) {
+            status.textContent = "Account id looks wrong — expected e.g. capitec-zar.";
+            return;
+          }
+          if (!isFinite(amount)) {
+            status.textContent = "Enter the balance as a number.";
+            return;
+          }
+          busAct(`confirm ${acct} balance`, (doc) => {
+            const bucket = (doc.banking ??= {});
+            prunePush(bucket, "balances",
+              { account: acct, amount, requested_at: new Date().toISOString() }, 2);
+          }, status,
+            `✅ ${acct} balance sent — applied within ~30s ('serve' must be up).`);
+        },
+      }, "Stamp balance"),
+      status);
+  });
+}
+
+function cashStrip(bank) {
+  const accounts = bank.accounts || [];
+  const gate = bank.gate || {};
+  const maxAge = (gate.knobs || {}).max_balance_age_days ?? 7;
+  const wrap = el("div", { class: "kpis" });
+  for (const acc of accounts) {
+    wrap.append(el("div", { class: "kpi" },
+      el("div", { class: "l" }, acc.account),
+      el("div", { class: "v" }, fmtMoney(acc.balance, acc.currency)),
+      el("div", { class: "s", style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap" },
+        ageChip(acc.age_days, maxAge),
+        el("span", {}, acc.balance != null
+          ? `${acc.source} · ${fmtDate(acc.as_of)} · ${fmtNum(acc.lines)} lines`
+          : "drop a statement, or"),
+        el("a", {
+          style: "cursor:pointer;color:var(--acc)",
+          onclick: () => confirmBalanceModal(acc.account),
+        }, "confirm ✎"))));
+  }
+  wrap.append(el("div", { class: "kpi" },
+    el("div", { class: "l" }, "Float · est. ZAR"),
+    el("div", { class: "v" }, gate.cash_zar != null ? fmtR(gate.cash_zar) : "—"),
+    el("div", { class: "s", style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap" },
+      gate.cash_zar != null
+        ? el("span", {}, `incl. $ ${fmtNum(gate.usd)} @ ${gate.fx_rate} · ` +
+            `${fmtR(gate.available_rand)} above the floor`)
+        : el("span", {}, "no balance evidence yet —"),
+      accounts.length ? null : el("a", {
+        style: "cursor:pointer;color:var(--acc)",
+        onclick: () => confirmBalanceModal(null),
+      }, "confirm a balance ✎"))));
+  return wrap;
+}
+
+/* ---- Affordability gate: the pre-condition for (auto-)ordering.
+   GREEN place / AMBER watch / RED hold everything / UNARMED never blocks
+   (no cash evidence yet). Knobs are remote-tunable — Save rides the
+   command bus and the pipeline mirrors them for the ordering stage. ---- */
+
+const GATE_TONE = { green: "ok", amber: "warn", red: "bad", unarmed: "mute" };
+const GATE_WORD = {
+  green: "orders may place",
+  amber: "placing, but watch it",
+  red: "ALL placements held (auto and manual)",
+  unarmed: "never blocks — arms on the first balance evidence",
+};
+
+function gatePanel(bank) {
+  const gate = bank.gate || {};
+  const knobs = gate.knobs || {};
+  const status = statusLine();
+  const p = panelEl("Affordability gate", {
+    soft: "— cash says yes before any order places",
+    right: pill(GATE_TONE[gate.status] || "mute",
+      (gate.status || "?").toUpperCase()),
+  });
+  p.append(el("div", { class: "hint" }, GATE_WORD[gate.status] || ""));
+
+  const dim = (label, value, bad) => el("div", { class: "kvrow" },
+    el("span", { class: "k" }, label),
+    el("span", { class: "v", style: bad ? "color:var(--bad);font-weight:650" : "" }, value));
+  p.append(
+    dim("Cash (est. ZAR) vs floor",
+      gate.cash_zar != null
+        ? `${fmtR(gate.cash_zar)} / ${fmtR(knobs.cash_floor_rands)}`
+        : "no evidence",
+      gate.cash_zar != null && gate.available_rand <= 0),
+    dim("In-flight exposure vs cap",
+      `${fmtR(gate.inflight_rand)} / ${fmtR(knobs.max_inflight_rands)}`,
+      (gate.inflight_rand ?? 0) >= (knobs.max_inflight_rands ?? Infinity)),
+    dim("Orders today vs cap",
+      `${gate.orders_today ?? 0} / ${knobs.max_orders_day ?? "—"}`,
+      (gate.orders_today ?? 0) >= (knobs.max_orders_day ?? Infinity)),
+    dim("Balance evidence age vs max",
+      gate.age_days != null
+        ? `${gate.age_days}d / ${knobs.max_balance_age_days}d` : "—",
+      gate.age_days != null && gate.age_days > (knobs.max_balance_age_days ?? 7)));
+
+  for (const reason of gate.reasons || []) {
+    p.append(el("div", { class: "note warn", style: "margin-top:6px" }, `⛔ ${reason}`));
+  }
+  for (const note of gate.watch || []) {
+    p.append(el("div", { class: "hint" }, `⚠️ ${note}`));
+  }
+
+  /* knob editing — writes doc.affordability, the pipeline mirrors it */
+  const floorIn = el("input", { type: "number", class: "in", step: "1",
+    value: knobs.cash_floor_rands ?? "", style: "width:90px" });
+  const inflightIn = el("input", { type: "number", class: "in", step: "1",
+    value: knobs.max_inflight_rands ?? "", style: "width:90px" });
+  const dayIn = el("input", { type: "number", class: "in", step: "1", min: "0",
+    value: knobs.max_orders_day ?? "", style: "width:64px" });
+  p.append(el("div", {
+    style: "display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:10px;" +
+           "padding-top:8px;border-top:1px solid var(--line-soft)",
+  },
+    el("label", { class: "hint" }, "floor R", floorIn),
+    el("label", { class: "hint" }, "in-flight R", inflightIn),
+    el("label", { class: "hint" }, "orders/day", dayIn),
+    el("button", {
+      class: "b sm", onclick: () => {
+        const floor = parseFloat(floorIn.value);
+        const inflight = parseFloat(inflightIn.value);
+        const day = parseInt(dayIn.value, 10);
+        if (![floor, inflight, day].every(isFinite) || floor < 0 || inflight < 0 || day < 0) {
+          status.textContent = "Knobs must be non-negative numbers.";
+          return;
+        }
+        busAct("set affordability knobs", (doc) => {
+          doc.affordability = {
+            cash_floor_rands: floor, max_inflight_rands: inflight,
+            max_orders_day: day, requested_at: new Date().toISOString(),
+          };
+        }, status, "✅ Knobs sent — the gate re-judges on the next orders pass.");
+      },
+    }, "Save knobs")),
+    el("div", { class: "hint", style: "margin-top:4px" },
+      `knobs from ${gate.knobs_source || "config"} · ` +
+      "RED also holds manual dashboard orders — money out is money out"),
+    status);
+  return p;
+}
+
+/* ---- Reconciliation workbench: how much of the statement story the
+   ledger explains, and the exceptions a human should look at. Post as
+   expense / Dismiss ride the command bus (idempotent per stamp). ---- */
+
+const LINE_ACCOUNTS = [
+  ["431", "Bank charges & FX"], ["429", "General expenses"],
+  ["412", "Advertising"], ["489", "Subscriptions & software"],
+  ["430", "Freight & clearing (local)"],
+];
+
+function reconPanel(bank) {
+  const recon = bank.recon || {};
+  const accounts = recon.accounts || [];
+  const status = statusLine();
+  const p = panelEl("Reconciliation", {
+    soft: "— statement lines ↔ ledger, exceptions only",
+    right: recon.unmatched_total
+      ? pill("warn", `${recon.unmatched_total} unmatched`)
+      : (accounts.length ? pill("ok", "fully explained") : null),
+  });
+  if (!accounts.length) {
+    p.append(emptyLine("no statement lines yet — drop a Capitec/Shyft " +
+      "export on the Documents panel and the matcher takes it from there"));
+    return p;
+  }
+  for (const acct of accounts) {
+    const pct = Math.round((acct.coverage ?? 0) * 100);
+    p.append(el("div", { class: "kvrow" },
+      el("span", { class: "k" }, acct.account),
+      el("span", { class: "v" }, `${acct.matched}/${acct.lines} explained (${pct}%)` +
+        (acct.oldest_unmatched ? ` · oldest ${fmtDate(acct.oldest_unmatched)}` : ""))));
+    p.append(el("div", { class: `gauge${acct.unmatched ? "" : " ok"}` },
+      el("span", { style: `width:${Math.min(100, pct)}%` })));
+  }
+
+  function lineAct(row, id, key, entry, sentWord) {
+    busAct(`${sentWord} bank line`, (doc) => {
+      const bucket = (doc.banking ??= {});
+      prunePush(bucket, key, { id, ...entry, requested_at: new Date().toISOString() }, 2);
+    }, status, `✅ ${sentWord} sent — applied within ~30s ('serve' must be up).`);
+    row.replaceChildren(el("span", { class: "st ok" }, `✓ ${sentWord} sent`));
+  }
+
+  const list = el("div", { style: "margin-top:10px" });
+  for (const ex of recon.exceptions || []) {
+    const select = el("select", { class: "in", style: "font-size:12px;padding:4px 6px" },
+      ...LINE_ACCOUNTS.map(([code, name]) =>
+        el("option", { value: code }, `${code} ${name}`)));
+    const actions = el("div", { style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px" },
+      (ex.amount ?? 0) < 0 ? select : null,
+      (ex.amount ?? 0) < 0 ? el("button", {
+        class: "b sm pri",
+        onclick: (ev) => lineAct(actions, ex.id, "expense_lines",
+          { account: select.value }, "post"),
+      }, "Post as expense") : null,
+      el("button", {
+        class: "b sm",
+        onclick: () => lineAct(actions, ex.id, "dismiss_lines", {}, "dismiss"),
+      }, "Dismiss"));
+    list.append(el("div", { class: "doccard", style: "margin-top:8px" },
+      el("div", { class: "dh" },
+        el("span", { class: "fn" }, (ex.description || "?").slice(0, 70)),
+        el("span", { style: "flex:1" }),
+        el("span", { class: "hint" }, `${fmtDate(ex.date)} · ${ex.account}`),
+        el("span", {
+          class: "r",
+          style: `font-variant-numeric:tabular-nums;font-weight:650;` +
+                 `color:var(--${(ex.amount ?? 0) < 0 ? "bad" : "ok-text"})`,
+        }, fmtMoney(ex.amount, ex.currency))),
+      actions));
+  }
+  if (!(recon.exceptions || []).length) {
+    list.append(el("div", { class: "hint", style: "margin-top:8px" },
+      "no exceptions — every statement line is matched, posted, a transfer " +
+      "leg, or dismissed"));
+  }
+  p.append(list, status,
+    el("div", { class: "hint", style: "margin-top:6px" },
+      "auto-matching is single-candidate-only: transfers pair by amount, " +
+      "Ali orders match goods+freight as one charge (FX-aware for the USD " +
+      "card) · wrong match? scripts/accounting_admin.py unmatch-line"));
+  return p;
 }
 
 function pnlPanel(acc, pnl) {

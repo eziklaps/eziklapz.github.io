@@ -468,6 +468,29 @@ function needsYouItems() {
     });
   }
 
+  const gate = ((a.banking || {}).gate) || {};
+  if (gate.status === "red") {
+    items.push({
+      tone: "bad",
+      title: "Affordability gate RED — order placements held",
+      sub: (gate.reasons || []).join(" · ") +
+        " · a fresh statement or balance confirm reopens it",
+      action: el("button", { class: "b sm line", onclick: () => setDesk("books") },
+        "Open on Books"),
+    });
+  }
+
+  const exceptions = (((a.banking || {}).recon) || {}).unmatched_total || 0;
+  if (exceptions) {
+    items.push({
+      tone: "warn",
+      title: `${exceptions} bank line${exceptions > 1 ? "s" : ""} the books can't explain`,
+      sub: "match, post as expense, or dismiss on the reconciliation workbench",
+      action: el("button", { class: "b sm line", onclick: () => setDesk("books") },
+        "Open on Books"),
+    });
+  }
+
   const docs = ((a.accounting || {}).documents || [])
     .filter((d) => d.status === "extracted");
   if (docs.length) {
@@ -577,7 +600,9 @@ function railBadges() {
     + (["expired", "missing"].includes((a.aliexpress_auth || {}).status) ? 1 : 0);
   const books = (((a.accounting || {}).documents) || [])
     .filter((d) => d.status === "extracted").length
-    + (((a.orders || {}).outstanding || {}).count || 0);
+    + (((a.orders || {}).outstanding || {}).count || 0)
+    + ((((a.banking || {}).recon) || {}).unmatched_total || 0)
+    + ((((a.banking || {}).gate) || {}).status === "red" ? 1 : 0);
   return {
     today: { n: needs, cls: needs ? "alert" : "" },
     buy: { n: winners, cls: "" },
