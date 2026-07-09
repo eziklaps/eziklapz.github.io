@@ -75,6 +75,7 @@ function stockModel() {
   const account_low = account.low_stock || [];
   return { rows: Object.values(rows), transit, account, account_low,
            movements: stock.movements || [],
+           courier: a.courier || null,
            totals: (a.orders || {}).inventory || {} };
 }
 
@@ -382,6 +383,243 @@ function renderStockDesk(root) {
     movesPanel.append(el("div", { class: "scroll-x" }, t));
   }
   root.append(movesPanel);
+
+  renderCourierPanel(root, m);
+}
+
+/* ----- courier panel: house → DC runs on TCG (Shiplogic API) -----
+   Quote-first flow: a "Quote only" entry books nothing and comes back
+   with the lane's live prices; a Book entry re-quotes at sink time and
+   refuses over its price cap (the refusal shows the actual price).
+   Delivered runs that carry an ASIN auto-move those units in the log. */
+const COURIER_STATUS_TONE = {
+  delivered: "ok", cancelled: "mute", quoted: "mute", error: "bad",
+  "returned-to-sender": "bad", undeliverable: "bad",
+};
+function renderCourierPanel(root, m) {
+  const c = m.courier;
+  if (!c) return; // pre-upgrade payload — serve restart pending
+  const right = !c.configured
+    ? el("span", { class: "st warn" }, "TCG_API_KEY not set")
+    : el("span", {},
+        c.balance != null
+          ? el("span", { class: c.low_balance ? "st bad" : "" },
+              `prepaid ${fmtR(c.balance)}`)
+          : "prepaid balance appears after the first poll",
+        " · ",
+        el("a", {
+          onclick: () => bookCourierModal(m), style: "cursor:pointer",
+        }, "Book courier…"));
+  const panel = panelEl("Courier — DC runs", { right });
+  if (c.auth_failed_at) {
+    panel.append(el("div", { class: "hint", style: "color:var(--bad)" },
+      "⚠ TCG rejected the API key — check TCG_API_KEY in .env (portal → Settings → API Keys)."));
+  }
+  if (c.low_balance) {
+    panel.append(el("div", { class: "hint", style: "color:var(--bad)" },
+      `⚠ prepaid balance ${fmtR(c.balance)} — top up in the TCG portal before the next run needs booking.`));
+  }
+  const ships = c.shipments || [];
+  if (!ships.length) {
+    panel.append(emptyLine(
+      "No courier runs yet — “Book courier…” quotes and books TCG collections " +
+      "from home to the Takealot DC or Amazon FC (quote first: it costs nothing)."));
+  } else {
+    const t = el("table", { class: "grid" },
+      el("tr", {},
+        el("th", {}, "When"), el("th", {}, "Run"), el("th", {}, "Status"),
+        el("th", { class: "r" }, "Rate"), el("th", {}, "")));
+    for (const s of ships) {
+      const what = s.asin ? `${s.quantity || 1}× ${s.asin}` : (s.note || "parcels");
+      const sub = [];
+      if (s.tracking_reference) sub.push(s.tracking_reference);
+      if (s.quote_only && (s.rates || []).length) {
+        sub.push((s.rates || []).map((r) => `${r.code} ${fmtR(r.rate)}`).join(" · "));
+      }
+      if (s.error) sub.push(s.error);
+      else if ((s.last_event || {}).message) sub.push(s.last_event.message);
+      const tone = COURIER_STATUS_TONE[s.status]
+        || (/exception|failed|rejected|hold/.test(s.status || "") ? "bad" : null);
+      const chip = el("span", {
+        class: tone === "bad" ? "st bad" : tone === "ok" ? "st hot" : "",
+        style: tone === "mute" ? "color:var(--muted)" : "",
+      }, s.status || "?");
+      const actions = el("span", { style: "white-space:nowrap" });
+      if (s.label_url) {
+        actions.append(el("a", {
+          href: s.label_url, target: "_blank", class: "b sm line",
+        }, "Label"));
+      } else if (s.tracking_reference && !s.quote_only
+                 && !["cancelled", "error"].includes(s.status)) {
+        actions.append(el("button", {
+          class: "b sm line",
+          onclick: () => courierAct(`label ${s.id}`,
+            { id: s.id, relabel: true }),
+        }, "Get label"));
+      }
+      if (s.cancellable) {
+        actions.append(el("button", {
+          class: "b sm line", style: "margin-left:6px",
+          onclick: () => courierAct(`cancel ${s.id}`,
+            { id: s.id, cancel: true }),
+        }, "Cancel"));
+      }
+      t.append(el("tr", {},
+        el("td", { style: "white-space:nowrap;color:var(--ink2)" },
+          fmtDate(s.booked_at || s.created_at)),
+        el("td", { class: "t" },
+          el("div", { class: "rowtitle" },
+            `${s.quote_only ? "💬 quote" : "🚚"} ${s.dest_label || s.dest} — ${what}`),
+          sub.length ? el("div", { class: "rowsub" }, sub.join(" · ")) : null),
+        el("td", {}, chip),
+        el("td", { class: "r" }, s.rate != null ? fmtR(s.rate)
+          : el("span", { style: "color:var(--muted)" }, "—")),
+        el("td", { class: "r" }, actions)));
+    }
+    panel.append(el("div", { class: "scroll-x" }, t));
+  }
+  panel.append(el("div", { class: "hint", style: "margin-top:8px" },
+    "collection is next business day (LOF cutoff 14:00) · a delivered run " +
+    "with an ASIN moves those units home → DC in the log automatically · " +
+    "spend posts to Books (Freight & clearing)"));
+  root.append(panel);
+}
+
+function courierAct(label, fields) {
+  withToken(() => {
+    const entry = { ...fields, requested_at: new Date().toISOString() };
+    busAct(label, (doc) => {
+      const bucket = (doc.courier ??= {});
+      prunePush(bucket, "requests", entry, 2);
+    }, null);
+  });
+}
+
+function bookCourierModal(m) {
+  withToken(() => {
+    const c = m.courier || {};
+    const dests = (c.destinations || []);
+    if (!dests.length) return;
+    const modeSel = el("select", { class: "in" },
+      el("option", { value: "quote", selected: "" }, "Quote only (free)"),
+      el("option", { value: "book" }, "Book collection"));
+    const destSel = el("select", { class: "in" },
+      ...dests.map((d, i) => el("option", {
+        value: d.key, ...(i === 0 ? { selected: "" } : {}),
+        ...(d.ready ? {} : { disabled: "" }),
+      }, d.label + (d.ready ? "" : " — address unconfirmed"))));
+    const destNote = el("div", { class: "hint" });
+    const syncNote = () => {
+      const d = dests.find((x) => x.key === destSel.value);
+      destNote.textContent = (d && d.note) ? `ℹ ${d.note}` : "";
+    };
+    destSel.addEventListener("change", syncNote);
+    syncNote();
+    const stocked = m.rows.filter((r) => (r.locs || {}).home > 0);
+    const asinSel = el("select", { class: "in" },
+      el("option", { value: "", selected: "" }, "— no ASIN (general run) —"),
+      ...stocked.map((r) => el("option", { value: r.asin },
+        `${r.asin} (${r.locs.home} at home)`)));
+    const qtySel = el("select", { class: "in" },
+      ...Array.from({ length: 20 }, (_, i) =>
+        el("option", { value: i + 1 }, `${i + 1}`)));
+    const weightIn = el("input", { type: "text", class: "in", value: "2", style: "width:70px" });
+    const dimsIn = ["30", "20", "15"].map((v) =>
+      el("input", { type: "text", class: "in", value: v, style: "width:56px" }));
+    const levelSel = el("select", { class: "in" },
+      el("option", { value: "LOF", selected: "" }, "LOF — overnight"),
+      el("option", { value: "ECO" }, "ECO — economy road"),
+      el("option", { value: "LSF" }, "LSF — same-day flyer"),
+      el("option", { value: "LSE" }, "LSE — same-day economy"));
+    const capIn = el("input", { type: "text", class: "in", value: "150", style: "width:80px" });
+    const confirmIn = el("input", {
+      type: "text", class: "in", placeholder: "type BOOK to confirm",
+      autocapitalize: "characters",
+    });
+    const noteIn = el("input", {
+      type: "text", class: "in wide", style: "margin-top:10px",
+      placeholder: "note (rides the waybill reference when no ASIN)",
+    });
+    const bookRows = el("div", {},
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px" }, "service"), levelSel,
+        el("span", { class: "meta" }, "max"), capIn, el("span", { class: "meta" }, "R")),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px" }, "confirm"), confirmIn));
+    bookRows.style.display = "none";
+    modeSel.addEventListener("change", () => {
+      bookRows.style.display = modeSel.value === "book" ? "" : "none";
+    });
+    const status = statusLine();
+    openModal(
+      el("h3", {}, "Courier run — home → warehouse"),
+      el("p", { class: "meta" },
+        "Quote only answers with the lane's live prices in the runs list " +
+        "(nothing books, nothing spends). Book re-quotes live and only " +
+        "commits at or under your price cap — refusals report the actual price."),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px" }, "mode"), modeSel),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px" }, "to"), destSel),
+      destNote,
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px" }, "what"), asinSel, qtySel),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px" }, "parcel"),
+        weightIn, el("span", { class: "meta" }, "kg ·"),
+        dimsIn[0], el("span", { class: "meta" }, "×"), dimsIn[1],
+        el("span", { class: "meta" }, "×"), dimsIn[2], el("span", { class: "meta" }, "cm")),
+      bookRows,
+      noteIn,
+      el("button", {
+        class: "b pri wide", style: "margin-top:12px",
+        onclick: () => {
+          const booking = modeSel.value === "book";
+          const weight = parseFloat(weightIn.value);
+          if (!(weight > 0 && weight <= 50)) {
+            status.textContent = "Weight must be 0–50 kg.";
+            return;
+          }
+          if (booking && confirmIn.value.trim().toUpperCase() !== "BOOK") {
+            status.textContent = "Type BOOK to confirm — this spends prepaid balance.";
+            return;
+          }
+          const cap = parseFloat(capIn.value);
+          if (booking && !(cap > 0)) {
+            status.textContent = "Set a max price cap in Rands.";
+            return;
+          }
+          const entry = {
+            dest: destSel.value,
+            parcels: [{
+              weight_kg: weight,
+              length_cm: parseFloat(dimsIn[0].value) || undefined,
+              width_cm: parseFloat(dimsIn[1].value) || undefined,
+              height_cm: parseFloat(dimsIn[2].value) || undefined,
+            }],
+            asin: asinSel.value || undefined,
+            quantity: asinSel.value ? Number(qtySel.value) : undefined,
+            service_level: levelSel.value,
+            note: noteIn.value.trim() || undefined,
+            requested_at: new Date().toISOString(),
+          };
+          if (booking) entry.max_rate = cap;
+          else entry.quote_only = true;
+          busAct(booking ? "book courier" : "quote courier", (doc) => {
+            const bucket = (doc.courier ??= {});
+            prunePush(bucket, "requests", entry, 2);
+          }, status,
+            booking
+              ? "✅ Sent — the booking (or the refusal with the live price) shows in the runs list within ~30s while 'serve' is up."
+              : "✅ Sent — the quote lands in the runs list within ~30s while 'serve' is up.");
+        },
+      }, "Send"),
+      el("button", {
+        class: "b wide", style: "margin-top:8px",
+        onclick: () => modalEl().close(),
+      }, "Cancel"),
+      status);
+  });
 }
 
 function stockRow(r) {
