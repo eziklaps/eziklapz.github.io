@@ -185,8 +185,8 @@ function render(data) {
 
 /* AliExpress credential banner: warns when the tokens are expired/expiring
    (published by funnel/metrics.py, env-only). The button opens the AliExpress
-   sign-in; the token exchange itself needs the app secret, which only lives
-   on the pipeline machine — hence the runtime.py hint. */
+   sign-in; the callback page hands the code to the command bus and serve
+   exchanges it (the app secret only lives on the pipeline machine). */
 function authWarning(auth) {
   if (!auth || !["expired", "expiring", "missing"].includes(auth.status)) return null;
   const critical = auth.status !== "expiring";
@@ -203,8 +203,8 @@ function authWarning(auth) {
   },
     el("div", {},
       `${critical ? "⛔" : "⚠"} ${text} `,
-      "Run ", el("code", {}, "python runtime.py auth"),
-      " on the pipeline machine (it opens this sign-in and saves fresh tokens), or:"),
+      "Press the button and sign in — serve picks the code up and saves ",
+      "fresh tokens by itself (needs serve running on the pipeline machine):"),
     el("div", {},
       el("a", {
         class: "btn", href: auth.authorize_url, target: "_blank",

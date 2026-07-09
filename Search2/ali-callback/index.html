@@ -20,11 +20,11 @@
         <pre id="code" class="scroll-x" style="padding:10px 12px;border:1px solid var(--hairline);border-radius:8px;background:var(--page);user-select:all"></pre>
         <button id="copy" class="btn">Copy code</button>
         <p class="sub" style="margin-top:10px">
-          Manual fallback: in the <code>python runtime.py auth</code> terminal
-          press Ctrl-C (give it a few seconds), then paste the code at the
-          prompt — in a classic Windows console paste with a
-          <strong>right-click</strong>, not Ctrl-V. The code is single-use and
-          expires in minutes.
+          Normally serve picks the code up by itself — this box is the manual
+          fallback: run <code>python runtime.py auth</code> on the pipeline
+          machine and paste the code at its prompt (in a classic Windows
+          console paste with a <strong>right-click</strong>, not Ctrl-V).
+          The code is single-use and expires in minutes.
         </p>
       </div>
     </section>
@@ -36,7 +36,8 @@
        1. Command bus — publish {code, at} as doc.auth via mutateCommands
           (common.js), using the dashboard admin token this browser already
           holds from the admin/user pages (same origin, same localStorage).
-          'python runtime.py auth' polls the bus and exchanges the code.
+          serve's long-poll wakes on the write and exchanges the code
+          itself ('python runtime.py auth' polls the same blob as fallback).
        2. localhost catcher — legacy path; blocked by Chrome's Local
           Network Access on public pages, but harmless to try.
        3. The copy-paste box above, always shown. */
@@ -81,9 +82,9 @@
           doc.auth = { code, at: new Date().toISOString() };
         }, "Dashboard: AliExpress auth code")
           .then(() => {
-            status.textContent = "✅ Code delivered — 'python runtime.py " +
-              "auth' picks it up within seconds; check the terminal, then " +
-              "close this tab.";
+            status.textContent = "✅ Code delivered — serve exchanges it " +
+              "automatically within seconds. You can close this tab; the " +
+              "dashboard's AliExpress warning clears on its next refresh.";
           })
           .catch(() => tryLocalhost());
       } else {
