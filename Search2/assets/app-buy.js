@@ -569,21 +569,45 @@ function openOrderModal(p) {
 function markReceivedModal(p, o) {
   withToken(() => {
     const status = statusLine();
+    const expected = o.quantity != null ? Number(o.quantity) : null;
+    const qtyIn = el("input", {
+      type: "number", class: "in", min: "1", max: "999",
+      style: "width:80px", ...(expected ? { value: String(expected) } : {}),
+      placeholder: expected ? String(expected) : "count",
+    });
+    const partialChk = el("input", { type: "checkbox" });
     const btn = el("button", { class: "b pri wide", style: "margin-top:14px" }, "Mark received");
     btn.addEventListener("click", async () => {
+      const partial = partialChk.checked;
+      const qty = qtyIn.value.trim() === "" ? null : Math.round(Number(qtyIn.value));
+      if (qty != null && !(qty >= 1 && qty <= 999)) {
+        status.textContent = "Count must be 1–999 (or leave it at the ordered quantity).";
+        return;
+      }
+      if (partial && qty == null) {
+        status.textContent = "A partial delivery needs the count that actually arrived.";
+        return;
+      }
       btn.setAttribute("disabled", "");
       status.textContent = "Committing receipt…";
       try {
         await mutateCommands((doc) => prunePush(doc, "orders", {
-          id: o.id, received: true, requested_at: new Date().toISOString(),
+          id: o.id, received: true,
+          ...(qty != null && (partial || qty !== expected) ? { quantity: qty } : {}),
+          ...(partial ? { partial: true } : {}),
+          requested_at: new Date().toISOString(),
         }), `Dashboard: mark ${o.id} received`);
         status.textContent = "";
         btn.replaceWith(el("div", { class: "note ok", style: "margin-top:14px" },
           el("b", {}, "✅ Receipt committed. "),
-          "The intent flips to received and the goods book into inventory " +
-          "when the pipeline next syncs (within ~30s while a run or serve " +
-          "is active). Missing COGS rows post automatically — arrival " +
-          "proves payment."));
+          partial
+            ? "The tranche books into inventory and the intent stays open " +
+              "for the remaining boxes — the final delivery uses a plain " +
+              "Mark received."
+            : "The intent flips to received and the goods book into inventory " +
+              "when the pipeline next syncs (within ~30s while a run or serve " +
+              "is active). Missing COGS rows post automatically — arrival " +
+              "proves payment."));
       } catch (e) {
         status.textContent = `Failed: ${e.message}`;
         if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
@@ -597,6 +621,15 @@ function markReceivedModal(p, o) {
         `${(o.ae_order_ids || []).join(", ")}) arrived. This closes tracking, ` +
         "books the goods into inventory at their estimated landed cost, and " +
         "frees the Order button for a restock."),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:12px" },
+        el("span", { class: "meta" }, "units in hand"), qtyIn,
+        expected ? el("span", { class: "meta" }, `ordered ${expected}`) : null),
+      el("label", { style: "display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--ink2)" },
+        partialChk,
+        "partial delivery — book this box now, keep the order open (Ali splits orders)"),
+      el("p", { class: "meta", style: "margin-top:8px" },
+        "A different count books what's actually on the shelf — the full " +
+        "spend stays on the books either way."),
       btn,
       el("button", { class: "b wide", style: "margin-top:8px", onclick: () => modalEl().close() }, "Close"),
       status);

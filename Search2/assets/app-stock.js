@@ -1,10 +1,18 @@
 /* Stock desk — where every unit is: inbound AliExpress shipments (the
    logistics state machine), per-location balances from the stock_movements
-   log (received / sold / moved / write-off), and the Takealot channel
-   mirror. Velocity + listing state join from the buyer payload by ASIN, so
-   cover-days need no extra publish. Move-stock / write-offs post to the
-   bus (doc.stock.moves → funnel/commands.sink_stock).
-   Not in the pipeline yet (bookmarked): FBA stock pool. */
+   log (received / sold / moved / write-off / returned / adjust), the
+   Takealot channel mirror and the FBA pool (synced from the FBA Inventory
+   API each sales poll). Velocity + listing state join from the buyer
+   payload by ASIN, so cover-days need no extra publish. Move-stock /
+   write-offs / count adjustments post to the bus (doc.stock.moves →
+   funnel/commands.sink_stock). */
+
+/* Reorder math: an AliExpress order takes ~a month door to door, so the
+   reorder point is lead-time demand plus a safety buffer, netted against
+   what's already on the road — firing at "cover ≤ 7d" guaranteed a
+   three-week stockout. The suggested quantity tops the position back up
+   to lead + safety + one order cycle. */
+const LEAD_TIME_DAYS = 30, SAFETY_STOCK_DAYS = 10, ORDER_CYCLE_DAYS = 30;
 
 function stockModel() {
   const a = S.admin || {};
@@ -37,6 +45,7 @@ function stockModel() {
     r.locs = h.locations || { home: h.units || 0 };
     r.home += r.locs.home || 0;
     r.value += h.value_rand || 0;
+    r.basis = h.cost_basis || r.basis;
     r.received_at = h.received_at || r.received_at;
   }
   for (const t of transit) {
@@ -46,6 +55,7 @@ function stockModel() {
     r.road += t.quantity || 0;
     t.row = r;
   }
+  const committed = stock.committed || {};
   for (const r of Object.values(rows)) {
     const p = r.product;
     r.title = r.title || (p && p.title) || r.asin;
@@ -56,14 +66,28 @@ function stockModel() {
     r.other = Object.entries(r.locs)
       .filter(([k, v]) => k !== "home" && k !== "takealot" && v !== 0);
     r.onHand = locUnits + (r.locs.takealot == null ? (r.tkl || 0) : 0);
+    /* ATP: what could actually be sold right now. On hand already nets a
+       negative DC balance (units owed to Takealot), so subtract only the
+       open-MFN holds and returned boxes awaiting inspection. Negative
+       available = oversold, worth seeing. */
+    r.dcOwed = Math.max(0, -(r.locs.takealot || 0));
+    r.mfnOpen = committed[r.asin] || 0;
+    r.returns = Math.max(0, r.locs.returns || 0);
+    r.available = r.onHand - r.mfnOpen - r.returns;
     r.velocity = p && p.est_units_month != null ? p.est_units_month : null;
     r.live = !!(p && (p.listing?.state === "live" || p.takealot?.state === "live"));
     r.queued = !!(p && ((p.listing && !PARKED.has(p.listing.state) && p.listing.state !== "live")
       || (p.takealot && !PARKED.has(p.takealot.state) && p.takealot.state !== "live")));
-    r.coverDays = (r.velocity && r.onHand > 0)
-      ? r.onHand / (r.velocity / 30) : null;
-    if (r.onHand > 0 && r.live && r.coverDays != null && r.coverDays <= 7) {
+    const daily = r.velocity ? r.velocity / 30 : null;
+    r.coverDays = (daily && r.available > 0) ? r.available / daily : null;
+    /* Net position (sellable + inbound) against the reorder point. */
+    const position = r.available + r.road;
+    r.positionDays = daily ? Math.max(position, 0) / daily : null;
+    const ropUnits = daily ? daily * (LEAD_TIME_DAYS + SAFETY_STOCK_DAYS) : null;
+    if (r.live && daily && position < ropUnits) {
       r.group = "restock";
+      r.suggestQty = Math.max(1, Math.ceil(
+        daily * (LEAD_TIME_DAYS + SAFETY_STOCK_DAYS + ORDER_CYCLE_DAYS) - position));
     } else if (r.onHand > 0 && !r.live) {
       r.group = "idle";
     } else if (r.onHand === 0 && r.road > 0) {
@@ -76,12 +100,15 @@ function stockModel() {
   return { rows: Object.values(rows), transit, account, account_low,
            movements: stock.movements || [],
            courier: a.courier || null,
+           fbaSyncedAt: stock.fba_synced_at || null,
            totals: (a.orders || {}).inventory || {} };
 }
 
-/* Move-stock / Write-off modal: posts one doc.stock.moves entry to the
-   bus; the pipeline validates against the movement log's balance and a
-   rejected move comes back in the movements list with the reason. */
+/* Move-stock / Write-off / Adjust-count modal: posts one doc.stock.moves
+   entry to the bus. Moves are validated against the movement log's
+   balance (a rejected move comes back in the log with the reason); an
+   adjust is a stocktake correction — the shelf is the truth, no balance
+   check, and Books only posts when it's flagged shrinkage. */
 function moveStockModal(r) {
   withToken(() => {
     const sources = Object.entries(r.locs).filter(([, v]) => v > 0);
@@ -92,7 +119,8 @@ function moveStockModal(r) {
       }, `${k} (${v})`)));
     const modeSel = el("select", { class: "in" },
       el("option", { value: "move", selected: "" }, "Move to…"),
-      el("option", { value: "write_off" }, "Write off"));
+      el("option", { value: "write_off" }, "Write off"),
+      el("option", { value: "adjust" }, "Adjust count"));
     const toChoices = ["takealot", "fba", "home"]
       .filter((k) => k !== sources[0][0]);
     const toSel = el("select", { class: "in" },
@@ -107,54 +135,100 @@ function moveStockModal(r) {
     toSel.addEventListener("change", () => {
       toInput.style.display = toSel.value ? "none" : "";
     });
-    const maxQty = Math.max(...sources.map(([, v]) => v), 1);
-    const qtySel = el("select", { class: "in" },
-      ...Array.from({ length: Math.min(maxQty, 20) }, (_, i) =>
-        el("option", { value: i + 1 }, `${i + 1}`)));
+    const qtyIn = el("input", {
+      type: "number", class: "in", value: "1", min: "1", max: "999",
+      style: "width:70px",
+    });
+    const signSel = el("select", { class: "in" },
+      el("option", { value: "-1", selected: "" }, "− missing"),
+      el("option", { value: "1" }, "+ found"));
+    const adjLocSel = el("select", { class: "in" },
+      ...[...new Set(["home", "takealot", "fba", "returns",
+                      ...Object.keys(r.locs || {})])]
+        .map((k, i) => el("option", {
+          value: k, ...(i === 0 ? { selected: "" } : {}),
+        }, r.locs[k] != null ? `${k} (${r.locs[k]})` : k)));
+    const shrinkChk = el("input", { type: "checkbox" });
+    const shrinkRow = el("label", {
+      style: "display:flex;align-items:center;gap:8px;margin-top:10px;" +
+        "font-size:12.5px;color:var(--ink2)",
+    }, shrinkChk,
+      "shrinkage — goods genuinely lost (posts the Books expense at avg cost)");
     const noteInput = el("input", {
       type: "text", class: "in wide", style: "margin-top:10px",
       placeholder: "note (why) — lands in the log; write-offs post it to Books",
     });
+    const fromRow = el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+      el("span", { class: "meta", style: "min-width:44px" }, "from"), fromSel);
     const toRow = el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
       el("span", { class: "meta", style: "min-width:44px" }, "to"), toSel, toInput);
-    modeSel.addEventListener("change", () => {
-      toRow.style.display = modeSel.value === "write_off" ? "none" : "flex";
-    });
+    const adjRow = el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+      el("span", { class: "meta", style: "min-width:44px" }, "count"), signSel, adjLocSel);
+    const sync = () => {
+      const mode = modeSel.value;
+      toRow.style.display = mode === "move" ? "flex" : "none";
+      fromRow.style.display = mode === "adjust" ? "none" : "flex";
+      adjRow.style.display = mode === "adjust" ? "flex" : "none";
+      shrinkRow.style.display =
+        mode === "adjust" && signSel.value === "-1" ? "flex" : "none";
+    };
+    modeSel.addEventListener("change", sync);
+    signSel.addEventListener("change", sync);
     const status = statusLine();
     openModal(
       el("h3", {}, `Move stock — ${r.title || r.asin}`),
       el("p", { class: "meta" },
         "A move re-homes units in the log (nothing posts to the channels); " +
-        "a write-off removes them and books the loss to Books at landed cost."),
+        "a write-off removes them and books the loss to Books at landed " +
+        "cost; an adjust corrects the count to what the stocktake found."),
       el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
-        el("span", { class: "meta", style: "min-width:44px" }, "what"), modeSel, qtySel,
+        el("span", { class: "meta", style: "min-width:44px" }, "what"), modeSel, qtyIn,
         el("span", { class: "meta" }, "unit(s)")),
-      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
-        el("span", { class: "meta", style: "min-width:44px" }, "from"), fromSel),
+      fromRow,
       toRow,
+      adjRow,
+      shrinkRow,
       noteInput,
       el("button", {
         class: "b pri wide", style: "margin-top:12px",
         onclick: () => {
-          const writeOff = modeSel.value === "write_off";
+          const mode = modeSel.value;
+          const writeOff = mode === "write_off";
+          const qty = Math.round(Number(qtyIn.value));
+          if (!(qty >= 1 && qty <= 999)) {
+            status.textContent = "Quantity must be 1–999.";
+            return;
+          }
           const to = (toSel.value || toInput.value.trim().toLowerCase());
-          if (!writeOff && !to) {
+          if (mode === "move" && !to) {
             status.textContent = "Name the destination location.";
             return;
           }
-          if (!writeOff && to === fromSel.value) {
+          if (mode === "move" && to === fromSel.value) {
             status.textContent = "Destination matches the source.";
             return;
           }
-          const entry = {
-            asin: r.asin, quantity: Number(qtySel.value),
-            from: fromSel.value,
-            note: noteInput.value.trim() || undefined,
-            requested_at: new Date().toISOString(),
-          };
-          if (writeOff) entry.write_off = true;
-          else entry.to = to;
-          busAct(writeOff ? `write off ${r.asin}` : `move ${r.asin}`, (doc) => {
+          let entry;
+          if (mode === "adjust") {
+            entry = {
+              asin: r.asin, quantity: qty * Number(signSel.value),
+              adjust: true, location: adjLocSel.value,
+              note: noteInput.value.trim() || undefined,
+              requested_at: new Date().toISOString(),
+            };
+            if (signSel.value === "-1" && shrinkChk.checked) entry.shrinkage = true;
+          } else {
+            entry = {
+              asin: r.asin, quantity: qty,
+              from: fromSel.value,
+              note: noteInput.value.trim() || undefined,
+              requested_at: new Date().toISOString(),
+            };
+            if (writeOff) entry.write_off = true;
+            else entry.to = to;
+          }
+          busAct(mode === "adjust" ? `adjust ${r.asin}`
+            : writeOff ? `write off ${r.asin}` : `move ${r.asin}`, (doc) => {
             const bucket = (doc.stock ??= {});
             prunePush(bucket, "moves", entry, 2);
           }, status,
@@ -167,6 +241,7 @@ function moveStockModal(r) {
         onclick: () => modalEl().close(),
       }, "Cancel"),
       status);
+    sync();
   });
 }
 
@@ -183,7 +258,9 @@ function renderStockDesk(root) {
   const units = m.rows.reduce((s, r) => s + r.onHand, 0);
   const roadUnits = m.transit.reduce((s, t) => s + (t.quantity || 0), 0);
   const roadValue = m.transit.reduce((s, t) => s + (t.cost || 0), 0);
-  const sellable = m.rows.filter((r) => r.live).reduce((s, r) => s + r.onHand, 0);
+  const sellable = m.rows.filter((r) => r.live)
+    .reduce((s, r) => s + Math.max(r.available, 0), 0);
+  const committedUnits = m.rows.reduce((s, r) => s + r.mfnOpen + r.dcOwed + r.returns, 0);
   const idleUnits = m.rows.filter((r) => r.group === "idle").reduce((s, r) => s + r.onHand, 0);
   const idleSkus = m.rows.filter((r) => r.group === "idle").length;
   const restock = m.rows.filter((r) => r.group === "restock");
@@ -194,19 +271,26 @@ function renderStockDesk(root) {
     "priority-sorted: what needs you floats to the top · landed-cost " +
     "estimates until actuals post"));
 
+  const bases = new Set(m.rows.filter((r) => r.value > 0)
+    .map((r) => r.basis).filter(Boolean));
+  const basisWord = bases.size === 1 && bases.has("actual") ? "actuals"
+    : bases.has("actual") || bases.has("mixed") ? "part actuals" : "estimate";
   root.append(el("div", { class: "kpis" },
     kpi("On hand", el("span", {}, fmtNum(units), " ",
       el("span", { style: "font-size:14px;color:var(--ink2);font-weight:600" }, "units")),
-      `${skus} SKUs · ${fmtR(m.totals.value_rand || 0)} landed (estimate)`),
+      `${skus} SKUs · ${fmtR(m.totals.value_rand || 0)} landed (${basisWord})`),
     kpi("On the road", el("span", {}, fmtNum(roadUnits), " ",
       el("span", { style: "font-size:14px;color:var(--ink2);font-weight:600" }, "inbound")),
       `${fmtR(roadValue)} committed · ${m.transit.length} shipment${m.transit.length === 1 ? "" : "s"}`),
     kpi("Sellable now", el("span", {}, fmtNum(sellable), " ",
       el("span", { style: "font-size:14px;color:var(--ink2);font-weight:600" }, `of ${fmtNum(units)}`)),
-      idleUnits ? `${idleUnits} units idle across ${idleSkus} SKU${idleSkus === 1 ? "" : "s"} — no live listing` : "everything on hand is listed"),
+      [committedUnits ? `${committedUnits} committed — open orders, DC debt, returns` : null,
+       idleUnits ? `${idleUnits} units idle across ${idleSkus} SKU${idleSkus === 1 ? "" : "s"} — no live listing` : null,
+      ].filter(Boolean).join(" · ") || "everything on hand is listed"),
     kpi("Restock alerts",
       el("span", { class: alerts ? "v hot" : "" }, fmtNum(alerts)),
-      alerts ? "shortest cover floats to the top below" : "nothing running out"),
+      alerts ? "below the reorder point — shortest runway floats to the top"
+        : `nothing below the reorder point (${LEAD_TIME_DAYS}d lead + safety, net of inbound)`),
   ));
 
   /* ----- flow board ----- */
@@ -258,6 +342,9 @@ function renderStockDesk(root) {
   }
 
   const tkRows = (m.account.rows || []);
+  const dcOwedTotal = m.rows.reduce((s, r) => s + r.dcOwed, 0);
+  const fbaRows = m.rows.filter((r) => (r.locs || {}).fba > 0);
+  const fbaUnits = fbaRows.reduce((s, r) => s + r.locs.fba, 0);
   const channelCol = el("div", { style: "flex:1.05;display:flex;flex-direction:column;gap:8px;min-width:0" },
     el("div", { class: "flowcell", style: "flex:none" },
       el("div", { class: "fh" },
@@ -265,6 +352,12 @@ function renderStockDesk(root) {
         el("div", { class: "fn" }, tkRows.length
           ? `${(m.account.counts || {}).buyable || 0} buyable of ${m.account.total || tkRows.length}`
           : "no offers")),
+      dcOwedTotal
+        ? el("div", { class: "flowrow" },
+            el("span", { style: "font-weight:600" },
+              `owes the DC ${dcOwedTotal} unit${dcOwedTotal === 1 ? "" : "s"}`),
+            el("span", { class: "st bad" }, "🚚 3-day SLA"))
+        : null,
       m.account_low.length
         ? el("div", { class: "flowrow" },
             el("span", { style: "font-weight:600" }, m.account_low[0].title || m.account_low[0].sku),
@@ -277,9 +370,13 @@ function renderStockDesk(root) {
     el("div", { class: "flowcell", style: "flex:none" },
       el("div", { class: "fh" },
         el("div", { class: "ft" }, "📦 Amazon FBA"),
-        el("div", { class: "fn" }, "not tracked yet")),
+        el("div", { class: "fn" }, m.fbaSyncedAt
+          ? (fbaUnits ? `${fmtNum(fbaUnits)} u · ${fbaRows.length} SKU${fbaRows.length === 1 ? "" : "s"}` : "empty")
+          : "not tracked yet")),
       el("div", { class: "fs", style: "margin:4px 0 0" },
-        "FBA stock pool is bookmarked — lands with the first FBA inbound")));
+        m.fbaSyncedAt
+          ? `synced from the FBA Inventory API with each sales poll (last ${fmtAgo(m.fbaSyncedAt)})`
+          : "FBA pool sync rides the sales poll — appears after the next serve restart")));
 
   board.append(el("div", { class: "flow" },
     roadCell,
@@ -293,10 +390,11 @@ function renderStockDesk(root) {
 
   /* ----- per-SKU table ----- */
   const tablePanel = panelEl("Stock by product", {
-    right: "cover = on hand ÷ daily velocity (rank-estimated)",
+    right: "cover = available (on hand − committed) ÷ daily velocity · " +
+      `reorder when position < ${LEAD_TIME_DAYS + SAFETY_STOCK_DAYS}d`,
   });
   const groups = [
-    ["restock", "Restock — cover running out", "bad"],
+    ["restock", "Restock — below the reorder point, incl. inbound", "bad"],
     ["idle", "Idle — on hand but not selling", "warn"],
     ["transit", "In transit only — not yet on hand", "mute"],
     ["healthy", "Healthy", "ok"],
@@ -310,12 +408,14 @@ function renderStockDesk(root) {
       el("tr", {},
         el("th", {}, "Product"), el("th", { class: "r" }, "Road"),
         el("th", { class: "r" }, "Home"), el("th", { class: "r" }, "Takealot"),
-        el("th", { class: "r" }, "On hand"), el("th", { class: "r" }, "Value"),
+        el("th", { class: "r" }, "On hand"), el("th", { class: "r" }, "Avail"),
+        el("th", { class: "r" }, "Value"),
         el("th", { class: "r" }, "Cover"), el("th", {}, "")));
     const wrap = el("div", { class: "scroll-x" });
     for (const [key, label, tone] of groups) {
       const rows = m.rows.filter((r) => r.group === key)
-        .sort((x, y) => (x.coverDays ?? 1e9) - (y.coverDays ?? 1e9));
+        .sort((x, y) => (x.positionDays ?? x.coverDays ?? 1e9)
+          - (y.positionDays ?? y.coverDays ?? 1e9));
       if (!rows.length) continue;
       const isHealthy = key === "healthy";
       const collapsed = isHealthy && !S.stockOpen && rows.length > 4;
@@ -332,13 +432,13 @@ function renderStockDesk(root) {
       if (collapsed) continue;
       const gtable = table.cloneNode(false);
       gtable.append(table.rows[0].cloneNode(true));
-      for (const r of rows) gtable.append(stockRow(r));
+      for (const r of rows) gtable.append(stockRow(r, m));
       wrap.append(gtable);
     }
     tablePanel.append(wrap);
   }
   tablePanel.append(el("div", { class: "hint", style: "margin-top:8px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap" },
-    el("span", {}, `${fmtNum(units)} units on hand · ${fmtR(m.totals.value_rand || 0)} landed (estimate)`),
+    el("span", {}, `${fmtNum(units)} units on hand · ${fmtR(m.totals.value_rand || 0)} landed (${basisWord})`),
     el("span", {}, "counts update from sales polls, Mark received and the " +
       "movements below — Move… re-homes or writes off units")));
   root.append(tablePanel);
@@ -352,7 +452,8 @@ function renderStockDesk(root) {
       "No movements yet — the first “Mark received” writes the first row."));
   } else {
     const KIND = { received: ["📥", "Received"], sold: ["🛍", "Sold"],
-                   moved: ["🔀", "Moved"], write_off: ["🗑", "Write-off"] };
+                   moved: ["🔀", "Moved"], write_off: ["🗑", "Write-off"],
+                   returned: ["↩️", "Returned"], adjust: ["🧮", "Adjusted"] };
     const t = el("table", { class: "grid" },
       el("tr", {},
         el("th", {}, "When"), el("th", {}, "What"),
@@ -363,6 +464,8 @@ function renderStockDesk(root) {
       const route = mv.kind === "received" ? `→ ${mv.to || "home"}`
         : mv.kind === "sold" ? `${mv.from || "?"} → sold`
         : mv.kind === "write_off" ? `${mv.from || "?"} → ✕`
+        : mv.kind === "returned" ? `sold ↩ ${mv.to || "returns"}`
+        : mv.kind === "adjust" ? (mv.to ? `count +→ ${mv.to}` : `count −→ ${mv.from || "?"}`)
         : `${mv.from || "?"} → ${mv.to || "?"}`;
       t.append(el("tr", {},
         el("td", { style: "white-space:nowrap;color:var(--ink2)" }, fmtDate(mv.at)),
@@ -622,19 +725,19 @@ function bookCourierModal(m) {
   });
 }
 
-function stockRow(r) {
+function stockRow(r, m) {
   const p = r.product;
   let cover;
-  if (r.onHand === 0) {
+  if (r.coverDays != null) {
+    cover = r.coverDays < 1 ? el("span", { class: "st bad" }, "<1d 🔴")
+      : r.coverDays <= 7 ? el("span", { class: "st hot" }, `~${Math.round(r.coverDays)}d`)
+      : el("span", { style: "color:var(--ink2)" }, `~${Math.round(r.coverDays)}d`);
+  } else if (r.onHand === 0 && r.road > 0) {
     cover = el("span", { style: "color:var(--ink2)" }, "in transit");
-  } else if (r.coverDays == null) {
-    cover = el("span", { style: "color:var(--muted)" }, "—");
-  } else if (r.coverDays < 1) {
-    cover = el("span", { class: "st bad" }, "<1d 🔴");
-  } else if (r.coverDays <= 7) {
-    cover = el("span", { class: "st hot" }, `~${Math.round(r.coverDays)}d`);
+  } else if (r.onHand > 0 && r.available <= 0) {
+    cover = el("span", { class: "st bad" }, "committed");
   } else {
-    cover = el("span", { style: "color:var(--ink2)" }, `~${Math.round(r.coverDays)}d`);
+    cover = el("span", { style: "color:var(--muted)" }, "—");
   }
   let action = el("span", {});
   if (r.group === "restock" && p) {
@@ -649,10 +752,20 @@ function stockRow(r) {
   }
   const sub = [];
   if (r.velocity != null) sub.push(`sells ≈${fmtNum(Math.round(r.velocity))}/mo`);
+  if (r.group === "restock" && r.suggestQty) {
+    sub.push(`order ≈${r.suggestQty} — position ${r.positionDays != null
+      ? "~" + Math.round(r.positionDays) + "d" : "?"} vs ${LEAD_TIME_DAYS + SAFETY_STOCK_DAYS}d point`);
+  }
+  if (r.mfnOpen) sub.push(`${r.mfnOpen} committed to open MFN order${r.mfnOpen === 1 ? "" : "s"}`);
+  if (r.returns) sub.push(`↩️ ${r.returns} in returns — inspect, then Move home or Write off`);
+  if (r.dcOwed) {
+    sub.push(`🚚 owes the DC ${r.dcOwed} unit${r.dcOwed === 1 ? "" : "s"} — leadtime sale, 3-day SLA`);
+  }
   if (r.group === "idle") sub.push(p && p.listing ? `listing ${INTENT_LABEL[p.listing.state] || p.listing.state}` : "no listing queued");
   if (r.group === "transit") sub.push(r.queued || r.live ? "listing under way — live by arrival if the feed clears" : "first stock");
-  if ((r.other || []).length) sub.push(r.other.map(([k, v]) => `${k} ${v}`).join(" · "));
-  if (Object.values(r.locs || {}).some((v) => v < 0)) {
+  if ((r.other || []).length) sub.push(r.other.filter(([k]) => k !== "returns")
+    .map(([k, v]) => `${k} ${v}`).join(" · "));
+  if (Object.entries(r.locs || {}).some(([k, v]) => k !== "takealot" && v < 0)) {
     sub.push("⚠ negative — a sale outran the receipts, check the log");
   }
   const canMove = Object.values(r.locs || {}).some((v) => v > 0);
@@ -662,12 +775,22 @@ function stockRow(r) {
       sub.length ? el("div", { class: "rowsub" }, sub.join(" · ")) : null),
     el("td", { class: "r" }, r.road ? fmtNum(r.road) : el("span", { style: "color:var(--muted)" }, "—")),
     el("td", { class: "r" }, r.home ? fmtNum(r.home) : el("span", { style: "color:var(--muted)" }, "—")),
-    el("td", { class: "r" }, r.tkl != null ? fmtNum(r.tkl) : el("span", { style: "color:var(--muted)" }, "—")),
-    el("td", { class: "r", style: "font-weight:650" },
+    el("td", { class: "r" }, r.tkl != null
+      ? el("span", { class: r.tkl < 0 ? "st bad" : "" }, fmtNum(r.tkl))
+      : el("span", { style: "color:var(--muted)" }, "—")),
+    el("td", { class: "r" },
       r.onHand ? fmtNum(r.onHand) : el("span", { style: "color:var(--muted)" }, "0")),
+    el("td", { class: "r", style: "font-weight:650" },
+      r.available !== r.onHand || r.available < 0
+        ? el("span", { class: r.available < 0 ? "st bad" : "" }, fmtNum(r.available))
+        : fmtNum(r.available)),
     el("td", { class: "r" }, r.value ? fmtR(Math.round(r.value)) : el("span", { style: "color:var(--muted)" }, "—")),
     el("td", { class: "r" }, cover),
     el("td", { class: "r t", style: "white-space:nowrap" }, action,
+      r.dcOwed ? el("button", {
+        class: "b sm line", style: "margin-left:6px",
+        onclick: () => bookCourierModal(m),
+      }, "Ship to DC…") : null,
       canMove ? el("button", {
         class: "b sm line", style: "margin-left:6px",
         onclick: () => moveStockModal(r),

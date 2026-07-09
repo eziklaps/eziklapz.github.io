@@ -384,6 +384,8 @@ function needsYouItems() {
     let action = null;
     if (it.kind === "ship_amazon_order") {
       action = el("button", { class: "b sm line", onclick: () => setDesk("sell") }, "Open on Sell");
+    } else if (it.kind === "ship_takealot_dc") {
+      action = el("button", { class: "b sm line", onclick: () => setDesk("stock") }, "Open on Stock");
     } else if (it.kind === "confirm_received") {
       action = el("button", { class: "b sm line", onclick: () => setDesk("buy", { buyTab: "ordered" }) }, "Open on Buy");
     } else if (order) {
