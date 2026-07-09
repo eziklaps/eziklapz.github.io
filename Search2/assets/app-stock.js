@@ -1,9 +1,10 @@
 /* Stock desk — where every unit is: inbound AliExpress shipments (the
-   logistics state machine), on-hand inventory receipts (Mark received),
-   and the Takealot channel mirror. Velocity + listing state join from the
-   buyer payload by ASIN, so cover-days need no extra publish.
-   Not in the pipeline yet (bookmarked): FBA stock pool, a movements log,
-   manual Move-stock / write-off entries. */
+   logistics state machine), per-location balances from the stock_movements
+   log (received / sold / moved / write-off), and the Takealot channel
+   mirror. Velocity + listing state join from the buyer payload by ASIN, so
+   cover-days need no extra publish. Move-stock / write-offs post to the
+   bus (doc.stock.moves → funnel/commands.sink_stock).
+   Not in the pipeline yet (bookmarked): FBA stock pool. */
 
 function stockModel() {
   const a = S.admin || {};
@@ -28,12 +29,13 @@ function stockModel() {
   const rows = {};
   const row = (asin) => rows[asin] ??= {
     asin, title: null, home: 0, road: 0, tkl: tkStock[asin] ?? null,
-    value: 0, received_at: null, product: byAsin[asin] || null,
+    locs: {}, value: 0, received_at: null, product: byAsin[asin] || null,
   };
   for (const h of stock.on_hand || []) {
     const r = row(h.asin);
     r.title = h.title || r.title;
-    r.home += h.units || 0;
+    r.locs = h.locations || { home: h.units || 0 };
+    r.home += r.locs.home || 0;
     r.value += h.value_rand || 0;
     r.received_at = h.received_at || r.received_at;
   }
@@ -47,7 +49,13 @@ function stockModel() {
   for (const r of Object.values(rows)) {
     const p = r.product;
     r.title = r.title || (p && p.title) || r.asin;
-    r.onHand = r.home + (r.tkl || 0);
+    /* Movement locations are the truth; the offer mirror only counts when
+       no takealot units are tracked yet (offers carry no stock today). */
+    const locUnits = Object.values(r.locs).reduce((s, n) => s + n, 0);
+    if (r.locs.takealot != null) r.tkl = r.locs.takealot;
+    r.other = Object.entries(r.locs)
+      .filter(([k, v]) => k !== "home" && k !== "takealot" && v !== 0);
+    r.onHand = locUnits + (r.locs.takealot == null ? (r.tkl || 0) : 0);
     r.velocity = p && p.est_units_month != null ? p.est_units_month : null;
     r.live = !!(p && (p.listing?.state === "live" || p.takealot?.state === "live"));
     r.queued = !!(p && ((p.listing && !PARKED.has(p.listing.state) && p.listing.state !== "live")
@@ -66,7 +74,99 @@ function stockModel() {
   }
   const account_low = account.low_stock || [];
   return { rows: Object.values(rows), transit, account, account_low,
+           movements: stock.movements || [],
            totals: (a.orders || {}).inventory || {} };
+}
+
+/* Move-stock / Write-off modal: posts one doc.stock.moves entry to the
+   bus; the pipeline validates against the movement log's balance and a
+   rejected move comes back in the movements list with the reason. */
+function moveStockModal(r) {
+  withToken(() => {
+    const sources = Object.entries(r.locs).filter(([, v]) => v > 0);
+    if (!sources.length) sources.push(["home", r.home]);
+    const fromSel = el("select", { class: "in" },
+      ...sources.map(([k, v], i) => el("option", {
+        value: k, ...(i === 0 ? { selected: "" } : {}),
+      }, `${k} (${v})`)));
+    const modeSel = el("select", { class: "in" },
+      el("option", { value: "move", selected: "" }, "Move to…"),
+      el("option", { value: "write_off" }, "Write off"));
+    const toChoices = ["takealot", "fba", "home"]
+      .filter((k) => k !== sources[0][0]);
+    const toSel = el("select", { class: "in" },
+      ...toChoices.map((k, i) => el("option", {
+        value: k, ...(i === 0 ? { selected: "" } : {}),
+      }, k)),
+      el("option", { value: "" }, "other…"));
+    const toInput = el("input", {
+      type: "text", class: "in", style: "display:none",
+      placeholder: "location label", autocapitalize: "off",
+    });
+    toSel.addEventListener("change", () => {
+      toInput.style.display = toSel.value ? "none" : "";
+    });
+    const maxQty = Math.max(...sources.map(([, v]) => v), 1);
+    const qtySel = el("select", { class: "in" },
+      ...Array.from({ length: Math.min(maxQty, 20) }, (_, i) =>
+        el("option", { value: i + 1 }, `${i + 1}`)));
+    const noteInput = el("input", {
+      type: "text", class: "in wide", style: "margin-top:10px",
+      placeholder: "note (why) — lands in the log; write-offs post it to Books",
+    });
+    const toRow = el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+      el("span", { class: "meta", style: "min-width:44px" }, "to"), toSel, toInput);
+    modeSel.addEventListener("change", () => {
+      toRow.style.display = modeSel.value === "write_off" ? "none" : "flex";
+    });
+    const status = statusLine();
+    openModal(
+      el("h3", {}, `Move stock — ${r.title || r.asin}`),
+      el("p", { class: "meta" },
+        "A move re-homes units in the log (nothing posts to the channels); " +
+        "a write-off removes them and books the loss to Books at landed cost."),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:44px" }, "what"), modeSel, qtySel,
+        el("span", { class: "meta" }, "unit(s)")),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:44px" }, "from"), fromSel),
+      toRow,
+      noteInput,
+      el("button", {
+        class: "b pri wide", style: "margin-top:12px",
+        onclick: () => {
+          const writeOff = modeSel.value === "write_off";
+          const to = (toSel.value || toInput.value.trim().toLowerCase());
+          if (!writeOff && !to) {
+            status.textContent = "Name the destination location.";
+            return;
+          }
+          if (!writeOff && to === fromSel.value) {
+            status.textContent = "Destination matches the source.";
+            return;
+          }
+          const entry = {
+            asin: r.asin, quantity: Number(qtySel.value),
+            from: fromSel.value,
+            note: noteInput.value.trim() || undefined,
+            requested_at: new Date().toISOString(),
+          };
+          if (writeOff) entry.write_off = true;
+          else entry.to = to;
+          busAct(writeOff ? `write off ${r.asin}` : `move ${r.asin}`, (doc) => {
+            const bucket = (doc.stock ??= {});
+            prunePush(bucket, "moves", entry, 2);
+          }, status,
+            "✅ Sent — the movement (or the reason it was rejected) shows " +
+            "in the log within ~30s while 'serve' is up.");
+        },
+      }, "Commit"),
+      el("button", {
+        class: "b wide", style: "margin-top:8px",
+        onclick: () => modalEl().close(),
+      }, "Cancel"),
+      status);
+  });
 }
 
 function renderStockBadge() {
@@ -238,9 +338,50 @@ function renderStockDesk(root) {
   }
   tablePanel.append(el("div", { class: "hint", style: "margin-top:8px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap" },
     el("span", {}, `${fmtNum(units)} units on hand · ${fmtR(m.totals.value_rand || 0)} landed (estimate)`),
-    el("span", {}, "movements log, Move-stock and write-offs are bookmarked — " +
-      "counts update from sales polls, tracking and Mark received")));
+    el("span", {}, "counts update from sales polls, Mark received and the " +
+      "movements below — Move… re-homes or writes off units")));
   root.append(tablePanel);
+
+  /* ----- movements log ----- */
+  const movesPanel = panelEl("Movements", {
+    right: "append-only — every unit in, out or re-homed",
+  });
+  if (!m.movements.length) {
+    movesPanel.append(emptyLine(
+      "No movements yet — the first “Mark received” writes the first row."));
+  } else {
+    const KIND = { received: ["📥", "Received"], sold: ["🛍", "Sold"],
+                   moved: ["🔀", "Moved"], write_off: ["🗑", "Write-off"] };
+    const t = el("table", { class: "grid" },
+      el("tr", {},
+        el("th", {}, "When"), el("th", {}, "What"),
+        el("th", { class: "r" }, "Qty"), el("th", {}, "Route"),
+        el("th", {}, "Note")));
+    for (const mv of m.movements) {
+      const [icon, label] = KIND[mv.kind] || ["•", mv.kind || "?"];
+      const route = mv.kind === "received" ? `→ ${mv.to || "home"}`
+        : mv.kind === "sold" ? `${mv.from || "?"} → sold`
+        : mv.kind === "write_off" ? `${mv.from || "?"} → ✕`
+        : `${mv.from || "?"} → ${mv.to || "?"}`;
+      t.append(el("tr", {},
+        el("td", { style: "white-space:nowrap;color:var(--ink2)" }, fmtDate(mv.at)),
+        el("td", { class: "t" },
+          el("div", { class: "rowtitle" },
+            `${icon} ${label} — ${mv.title || mv.asin || "?"}`),
+          mv.applied === false
+            ? el("div", { class: "rowsub" },
+                el("span", { class: "st bad" }, `rejected — ${mv.error || "?"}`))
+            : (mv.note ? el("div", { class: "rowsub" }, mv.note) : null)),
+        el("td", { class: "r" }, fmtNum(mv.quantity || 0)),
+        el("td", { style: "white-space:nowrap" }, route),
+        el("td", { class: "t", style: "color:var(--ink2)" },
+          mv.source === "dashboard" ? "you" :
+          mv.source === "sales_poll" ? "sales poll" :
+          mv.source || "")));
+    }
+    movesPanel.append(el("div", { class: "scroll-x" }, t));
+  }
+  root.append(movesPanel);
 }
 
 function stockRow(r) {
@@ -272,6 +413,11 @@ function stockRow(r) {
   if (r.velocity != null) sub.push(`sells ≈${fmtNum(Math.round(r.velocity))}/mo`);
   if (r.group === "idle") sub.push(p && p.listing ? `listing ${INTENT_LABEL[p.listing.state] || p.listing.state}` : "no listing queued");
   if (r.group === "transit") sub.push(r.queued || r.live ? "listing under way — live by arrival if the feed clears" : "first stock");
+  if ((r.other || []).length) sub.push(r.other.map(([k, v]) => `${k} ${v}`).join(" · "));
+  if (Object.values(r.locs || {}).some((v) => v < 0)) {
+    sub.push("⚠ negative — a sale outran the receipts, check the log");
+  }
+  const canMove = Object.values(r.locs || {}).some((v) => v > 0);
   return el("tr", {},
     el("td", { class: "t" },
       el("div", { class: "rowtitle" }, r.title),
@@ -283,5 +429,9 @@ function stockRow(r) {
       r.onHand ? fmtNum(r.onHand) : el("span", { style: "color:var(--muted)" }, "0")),
     el("td", { class: "r" }, r.value ? fmtR(Math.round(r.value)) : el("span", { style: "color:var(--muted)" }, "—")),
     el("td", { class: "r" }, cover),
-    el("td", { class: "r t" }, action));
+    el("td", { class: "r t", style: "white-space:nowrap" }, action,
+      canMove ? el("button", {
+        class: "b sm line", style: "margin-left:6px",
+        onclick: () => moveStockModal(r),
+      }, "Move…") : null));
 }
