@@ -176,7 +176,7 @@ function taxPanel(acc) {
    Gemini extracts → Post/Ignore here (accounting.post_docs / ignore_docs). */
 const DOC_STATUS_TONE = {
   new: "mute", extracted: "warn", posted: "ok",
-  ignored: "mute", extract_failed: "hot",
+  ignored: "mute", extract_failed: "hot", ingested: "ok",
 };
 
 function docsPanelEl(acc) {
@@ -235,7 +235,7 @@ function docsPanelEl(acc) {
   }
 
   const input = el("input", {
-    type: "file", multiple: "", accept: ".pdf,.jpg,.jpeg,.png,.webp",
+    type: "file", multiple: "", accept: ".pdf,.jpg,.jpeg,.png,.webp,.csv",
     style: "display:none",
     onchange: (ev) => {
       if (ev.target.files?.length) upload([...ev.target.files]);
@@ -258,8 +258,9 @@ function docsPanelEl(acc) {
       el("div", { style: "font-size:12.5px;font-weight:600" },
         "Drop files or ", el("span", { style: "color:var(--acc)" }, "browse")),
       el("div", { class: "hint" },
-        "PDF/JPG/PNG/WEBP up to 25 MB — supplier invoices, SAD 500 / " +
-        "clearance, courier invoices, statements")),
+        "PDF/JPG/PNG/WEBP/CSV up to 25 MB — supplier invoices, SAD 500 / " +
+        "clearance, courier invoices, bank statements (Capitec/Shyft " +
+        "exports become reconciliation lines)")),
     input);
   p.append(drop, transit,
     el("div", { class: "hint", style: "margin-top:6px" },
@@ -281,7 +282,11 @@ function docsPanelEl(acc) {
   const cards = el("div", { style: "margin-top:12px" });
   for (const d of docs) {
     const tone = DOC_STATUS_TONE[d.status] || "mute";
-    const read = d.doc_type
+    const read = d.bank
+      ? `statement → ${d.bank.account} · ${d.bank.lines_added} new line(s)` +
+        (d.bank.closing_balance != null
+          ? ` · closing ${d.currency ?? ""} ${fmtNum(d.bank.closing_balance)}` : "")
+      : d.doc_type
       ? `${d.doc_type} — ${d.supplier ?? "?"}` +
         (d.total_amount != null ? ` · ${d.currency ?? ""} ${fmtNum(d.total_amount)}` : "")
       : (d.error ?? "—");

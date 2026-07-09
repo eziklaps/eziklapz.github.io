@@ -794,7 +794,7 @@ function accountingPanel(acc) {
    without a click. */
 const DOC_STATUS_CHIP = {
   new: "neutral", extracted: "warning", posted: "good",
-  ignored: "neutral", extract_failed: "serious",
+  ignored: "neutral", extract_failed: "serious", ingested: "good",
 };
 
 function docsPanel(acc) {
@@ -858,7 +858,7 @@ function docsPanel(acc) {
   }
 
   const input = el("input", {
-    type: "file", multiple: "", accept: ".pdf,.jpg,.jpeg,.png,.webp",
+    type: "file", multiple: "", accept: ".pdf,.jpg,.jpeg,.png,.webp,.csv",
     style: "max-width:100%",
     onchange: (ev) => {
       if (ev.target.files?.length) upload([...ev.target.files]);
@@ -868,8 +868,9 @@ function docsPanel(acc) {
   body.append(
     el("div", {}, input),
     el("div", { class: "hint" },
-      "PDF/JPG/PNG/WEBP up to 25 MB — receipts, supplier invoices, customs " +
-      "paperwork (SAD 500 / clearance), courier invoices, statements."),
+      "PDF/JPG/PNG/WEBP/CSV up to 25 MB — receipts, supplier invoices, " +
+      "customs paperwork (SAD 500 / clearance), courier invoices, bank " +
+      "statements (Capitec/Shyft exports land as reconciliation lines)."),
     transit);
 
   async function decide(id, action) {
