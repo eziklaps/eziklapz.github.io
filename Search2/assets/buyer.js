@@ -526,8 +526,15 @@ function orderNow(p) {
     return;
   }
 
-  // Write credential first: intents are writes to the command bus.
+  // Write credential first: intents are writes to the command bus. The
+  // token is normally derived from the gate passphrase (common.js
+  // adoptBusToken), so the paste dialog below is a fallback only.
   if (!localStorage.getItem(PAT_KEY)) {
+    adoptBusToken().then((ok) => { if (ok) orderNow(p); else promptPat(); });
+    return;
+  }
+
+  function promptPat() {
     const copy = tokenPromptCopy();
     const patInput = el("input", {
       type: "password",
@@ -772,6 +779,7 @@ async function boot() {
       return false;
     }
     if (remember) localStorage.setItem(PASS_KEY, pass);
+    await adoptBusToken(pass);                // gate passphrase = bus credential
     refresh().catch(console.warn);            // fresh copy behind the paint
     setInterval(() => refresh().catch(console.warn), REFRESH_MS);
     // Live layer (no-op when off): a publish stamps buyer.enc and the page

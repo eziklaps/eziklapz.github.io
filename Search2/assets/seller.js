@@ -66,9 +66,18 @@ function pushListing(doc, entry) {
   doc.listings.push(entry);
 }
 
-/* Collects the admin token if missing, then runs next(). */
+/* Collects the admin token if missing, then runs next(). The token is
+   normally derived from the gate passphrase (common.js adoptBusToken), so
+   the paste dialog is a fallback only. */
 function withToken(next) {
   if (localStorage.getItem(PAT_KEY)) { next(); return; }
+  adoptBusToken().then((ok) => {
+    if (ok) { next(); return; }
+    promptForToken(next);
+  });
+}
+
+function promptForToken(next) {
   const dialog = document.getElementById("act-modal");
   const copy = tokenPromptCopy();
   const input = el("input", {
@@ -818,6 +827,7 @@ async function boot() {
     try {
       await loadAndRender(passphrase);
       if (remember) localStorage.setItem(PASS_KEY, passphrase);
+      await adoptBusToken(passphrase);  // gate passphrase = bus credential
       setInterval(async () => {
         try { await loadAndRender(passphrase); } catch (e) { console.warn(e); }
       }, REFRESH_MS);

@@ -222,6 +222,9 @@ function controlsPanel(data) {
   const status = el("div", { class: "hint", style: "margin-top:8px" });
 
   if (!localStorage.getItem(PAT_KEY)) {
+    // A cleared slot (401) retries the passphrase-derived token once; the
+    // input below stays as the fallback for a real mismatch.
+    adoptBusToken().then((ok) => { if (ok && lastData) render(lastData); });
     const copy = tokenPromptCopy();
     const input = el("input", {
       type: "password",
@@ -1264,6 +1267,9 @@ async function boot() {
   async function attempt(passphrase, remember) {
     try {
       await loadAndRender(passphrase);
+      // The verified passphrase doubles as the bus credential; repaint so
+      // the Remote-control panel arms without its token input.
+      if (await adoptBusToken(passphrase) && lastData) render(lastData);
       if (remember) localStorage.setItem(PASS_KEY, passphrase);
       setInterval(async () => {
         try { await loadAndRender(passphrase); } catch (e) { console.warn(e); }

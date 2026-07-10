@@ -218,6 +218,21 @@ function openModal(...children) {
 
 function withToken(next) {
   if (localStorage.getItem(PAT_KEY)) { next(); return; }
+  // The gate passphrase derives the bus token (common.js), so this normally
+  // resolves silently; the paste prompt below survives only as the fallback
+  // for a derivation the Worker rejected (secret not rotated yet) or for
+  // legacy GitHub-PAT mode.
+  adoptBusToken().then((ok) => {
+    if (ok) {
+      readCommandsSafe().finally(() => renderApp());
+      next();
+    } else {
+      promptForToken(next);
+    }
+  });
+}
+
+function promptForToken(next) {
   const copy = tokenPromptCopy();
   const input = el("input", {
     type: "password", class: "in wide", style: "margin:10px 0 4px",
@@ -637,6 +652,9 @@ function renderRail() {
 
 function lockDesk() {
   localStorage.removeItem(PASS_KEY);
+  // The bus token is passphrase-derived — locking must drop it too, or the
+  // desk stays actionable. Legacy mode keeps its hand-pasted GitHub PAT.
+  if (LIVE_BASE) localStorage.removeItem(PAT_KEY);
   location.reload();
 }
 
@@ -733,6 +751,9 @@ async function boot() {
     if (remember) localStorage.setItem(PASS_KEY, pass);
     gate.hidden = true;
     document.getElementById("app").hidden = false;
+    // The verified passphrase doubles as the bus credential — derive the
+    // token before the commands read so actions need nothing else.
+    await adoptBusToken(pass);
     readCommandsSafe().then((doc) => { if (doc) renderTopbar(); });
     refreshTimer = setInterval(() => refreshAll().catch(console.warn), REFRESH_MS);
     setInterval(tickAgo, 30_000);

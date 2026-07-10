@@ -117,6 +117,56 @@ async function decryptEnvelope(envelope, passphrase) {
   return JSON.parse(new TextDecoder().decode(plain));
 }
 
+/* ---- passphrase-derived command-bus token ----
+   Live mode needs a bearer for /api/commands; making it DERIVED from the
+   gate passphrase means one secret unlocks both data and actions — no
+   separate token to paste on a new device. Mirrors funnel/publisher.py
+   derive_admin_token(): PBKDF2-HMAC-SHA256 over a fixed domain-separation
+   salt, base64url unpadded. The Worker's ADMIN_TOKEN secret is set to the
+   same derived value (python -m funnel.publisher admin-token). */
+
+const BUS_TOKEN_SALT = "search2-admin-token-v1";
+// Keep in lockstep with config.ADMIN_PBKDF2_ITERATIONS. Drift is soft-fail:
+// the derived bearer 401s and the old paste prompt takes over.
+const BUS_TOKEN_ITERATIONS = 600_000;
+
+let _busPassphrase = null;  // remembered by the first successful unlock
+let _busDerived = null;     // last derived value we stored — if the Worker
+                            // 401s it, re-deriving is pointless; prompt instead
+
+async function deriveBusToken(passphrase) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256",
+      salt: new TextEncoder().encode(BUS_TOKEN_SALT),
+      iterations: BUS_TOKEN_ITERATIONS },
+    keyMaterial, 256);
+  return btoa(String.fromCharCode(...new Uint8Array(bits)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/* Fill the stored token slot from the gate passphrase. Pages call this with
+   the passphrase right after a successful decrypt, and with no argument to
+   retry after a 401 cleared the slot. Returns true when a stored token is
+   ready. Never overwrites an existing token, and never fires in legacy
+   GitHub-PAT mode (a PAT is not derivable). */
+async function adoptBusToken(passphrase) {
+  if (passphrase) _busPassphrase = passphrase;
+  if (!LIVE_BASE) return false;
+  if (localStorage.getItem(PAT_KEY)) return true;
+  if (!_busPassphrase) return false;
+  try {
+    const token = await deriveBusToken(_busPassphrase);
+    if (token === _busDerived) return false;  // already rejected once
+    _busDerived = token;
+    localStorage.setItem(PAT_KEY, token);
+    return true;
+  } catch (e) {
+    return false;  // WebCrypto/storage unavailable — the paste prompt still works
+  }
+}
+
 function fmtR(value) {
   if (value === null || value === undefined || value === "") return "—";
   return "R " + Number(value).toLocaleString("en-ZA", { maximumFractionDigits: 2 });
