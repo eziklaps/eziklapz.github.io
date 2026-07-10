@@ -47,6 +47,10 @@ function stockModel() {
     r.value += h.value_rand || 0;
     r.basis = h.cost_basis || r.basis;
     r.received_at = h.received_at || r.received_at;
+    /* Manual/wholesale receipts (Receive stock…): no AliExpress intent
+       exists to reorder through — the row says who supplied it instead. */
+    r.manual = h.manual || r.manual;
+    r.supplier = h.supplier || r.supplier;
   }
   for (const t of transit) {
     if (!t.asin) continue;
@@ -245,6 +249,164 @@ function moveStockModal(r) {
   });
 }
 
+/* Receive-stock modal: books goods bought OUTSIDE AliExpress — Alibaba
+   wholesale, local buys, own-brand stock — as one doc.stock.receipts
+   entry (funnel/commands.sink_stock → services/intake.apply_receipt).
+   One commit lands the product doc (minted if the SKU is new), the
+   costed inventory row at the invoice's landed cost, the Books rows
+   (310 goods / 311 freight) and the received movement; linking an
+   uploaded invoice marks it posted against exactly those rows. */
+function receiveStockModal(m) {
+  withToken(() => {
+    const known = new Set([
+      ...m.rows.map((r) => r.asin),
+      ...Object.keys(buyerByAsin()),
+    ]);
+    const skuIn = el("input", {
+      type: "text", class: "in", placeholder: "ASIN / barcode / own SKU",
+      autocapitalize: "characters", style: "width:170px",
+    });
+    const titleIn = el("input", {
+      type: "text", class: "in wide", style: "margin-top:10px",
+      placeholder: "title — required when the SKU is new to the system",
+    });
+    const qtyIn = el("input", {
+      type: "number", class: "in", value: "1", min: "1", max: "9999",
+      style: "width:80px",
+    });
+    const goodsIn = el("input", {
+      type: "number", class: "in", placeholder: "goods total R",
+      min: "0", step: "0.01", style: "width:130px",
+    });
+    const freightIn = el("input", {
+      type: "number", class: "in", placeholder: "freight R (opt)",
+      min: "0", step: "0.01", style: "width:130px",
+    });
+    const vatIn = el("input", {
+      type: "number", class: "in", placeholder: "VAT R (opt)",
+      min: "0", step: "0.01", style: "width:110px",
+    });
+    const supplierIn = el("input", {
+      type: "text", class: "in wide", style: "margin-top:10px",
+      placeholder: "supplier — e.g. Alibaba · Shenzhen Foo Ltd",
+    });
+    const locSel = el("select", { class: "in" },
+      ...["home", "takealot", "fba"].map((k, i) => el("option", {
+        value: k, ...(i === 0 ? { selected: "" } : {}),
+      }, k)));
+    const channelSel = el("select", { class: "in" },
+      el("option", { value: "amazon", selected: "" }, "Amazon"),
+      el("option", { value: "takealot" }, "Takealot"));
+    const targetIn = el("input", {
+      type: "number", class: "in", placeholder: "target sell price R",
+      min: "0", step: "0.01", style: "width:150px",
+    });
+    const brandIn = el("input", {
+      type: "text", class: "in", placeholder: "brand (opt)",
+      style: "width:130px",
+    });
+    const barcodeIn = el("input", {
+      type: "text", class: "in", placeholder: "barcode (opt)",
+      style: "width:140px",
+    });
+    const imageIn = el("input", {
+      type: "url", class: "in wide", style: "margin-top:10px",
+      placeholder: "image URL (opt — a create-own listing needs one)",
+    });
+    const docs = (((S.admin || {}).accounting || {}).documents || [])
+      .filter((d) => d.status === "new" || d.status === "extracted");
+    const docSel = el("select", { class: "in wide", style: "margin-top:10px" },
+      el("option", { value: "", selected: "" }, "no invoice linked"),
+      ...docs.map((d) => el("option", { value: d.id },
+        `${d.filename || d.id}${d.supplier ? ` — ${d.supplier}` : ""}` +
+        `${d.total_amount != null ? ` — ${d.currency || "R"} ${d.total_amount}` : ""}`)));
+    const noteIn = el("input", {
+      type: "text", class: "in wide", style: "margin-top:10px",
+      placeholder: "note (opt) — lands in the movement log",
+    });
+    const status = statusLine();
+    const rowOf = (label, ...kids) => el("div",
+      { style: "display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap" },
+      el("span", { class: "meta", style: "min-width:56px" }, label), ...kids);
+    openModal(
+      el("h3", {}, "Receive stock — outside AliExpress"),
+      el("p", { class: "meta" },
+        "Books a wholesale/local arrival in one shot: costed inventory at " +
+        "the invoice's landed price, the Books COGS rows, the movement — " +
+        "and a new product doc if the SKU is new (it enters the Sell side " +
+        "once it has a cost and a price to margin against)."),
+      rowOf("what", skuIn, el("span", { class: "meta" }, "×"), qtyIn,
+        el("span", { class: "meta" }, "unit(s) into"), locSel),
+      titleIn,
+      rowOf("cost", goodsIn, freightIn, vatIn),
+      supplierIn,
+      rowOf("sell via", channelSel, targetIn, brandIn, barcodeIn),
+      el("div", { class: "hint", style: "margin-top:4px" },
+        "target price prices/scores a brand-new item until a market price " +
+        "exists — required for a new own-SKU on Amazon; a known ASIN gets " +
+        "its live market price automatically"),
+      imageIn,
+      docSel,
+      noteIn,
+      el("button", {
+        class: "b pri wide", style: "margin-top:12px",
+        onclick: () => {
+          const sku = skuIn.value.trim().toUpperCase().replace(/[^A-Z0-9_-]+/g, "");
+          const qty = Math.round(Number(qtyIn.value));
+          const goods = Number(goodsIn.value);
+          const isNew = sku && !known.has(sku);
+          const ownSku = !/^[A-Z0-9]{10}$/.test(sku);
+          if (!sku) { status.textContent = "Enter the SKU/ASIN."; return; }
+          if (!(qty >= 1 && qty <= 9999)) {
+            status.textContent = "Quantity must be 1–9999."; return;
+          }
+          if (!(goods > 0)) {
+            status.textContent = "Goods total (Rands, off the invoice) is required.";
+            return;
+          }
+          if (isNew && !titleIn.value.trim()) {
+            status.textContent = "This SKU is new to the system — give it a title.";
+            return;
+          }
+          if (isNew && ownSku && channelSel.value !== "takealot"
+              && !(Number(targetIn.value) > 0)) {
+            status.textContent =
+              "A new own-SKU needs a target sell price — nothing can market-price an unlisted product.";
+            return;
+          }
+          const entry = {
+            sku, quantity: qty, goods_rand: goods,
+            requested_at: new Date().toISOString(),
+          };
+          if (titleIn.value.trim()) entry.title = titleIn.value.trim();
+          if (Number(freightIn.value) > 0) entry.freight_rand = Number(freightIn.value);
+          if (Number(vatIn.value) > 0) entry.vat_rand = Number(vatIn.value);
+          if (supplierIn.value.trim()) entry.supplier = supplierIn.value.trim();
+          if (locSel.value !== "home") entry.location = locSel.value;
+          entry.channel = channelSel.value;
+          if (Number(targetIn.value) > 0) entry.target_price_rand = Number(targetIn.value);
+          if (brandIn.value.trim()) entry.brand = brandIn.value.trim();
+          if (barcodeIn.value.trim()) entry.barcode = barcodeIn.value.trim();
+          if (imageIn.value.trim()) entry.image_url = imageIn.value.trim();
+          if (docSel.value) entry.document_id = docSel.value;
+          if (noteIn.value.trim()) entry.note = noteIn.value.trim();
+          busAct(`receive ${sku}`, (doc) => {
+            const bucket = (doc.stock ??= {});
+            prunePush(bucket, "receipts", entry, 2);
+          }, status,
+            "✅ Sent — inventory, Books rows and the movement land within " +
+            "~30s while 'serve' is up; a new SKU appears here on the next " +
+            "publish.");
+        },
+      }, "Receive"),
+      el("button", {
+        class: "b wide", style: "margin-top:8px",
+        onclick: () => modalEl().close(),
+      }, "Cancel"),
+      status);
+  });
+}
+
 function renderStockBadge() {
   if (!S.admin) return 0;
   const m = stockModel();
@@ -390,8 +552,11 @@ function renderStockDesk(root) {
 
   /* ----- per-SKU table ----- */
   const tablePanel = panelEl("Stock by product", {
-    right: "cover = available (on hand − committed) ÷ daily velocity · " +
-      `reorder when position < ${LEAD_TIME_DAYS + SAFETY_STOCK_DAYS}d`,
+    right: el("span", {},
+      "cover = available (on hand − committed) ÷ daily velocity · " +
+      `reorder when position < ${LEAD_TIME_DAYS + SAFETY_STOCK_DAYS}d · `,
+      el("a", { onclick: () => receiveStockModal(m), style: "cursor:pointer" },
+        "Receive stock…")),
   });
   const groups = [
     ["restock", "Restock — below the reorder point, incl. inbound", "bad"],
@@ -402,7 +567,9 @@ function renderStockDesk(root) {
   const anyRows = m.rows.length > 0;
   if (!anyRows) {
     tablePanel.append(emptyLine(
-      "No stock yet — the first “Mark received” on the Buy desk books goods in here."));
+      "No stock yet — “Mark received” on the Buy desk books AliExpress " +
+      "arrivals in here, and “Receive stock…” (above) books anything " +
+      "bought elsewhere."));
   } else {
     const table = el("table", { class: "grid" },
       el("tr", {},
@@ -740,7 +907,12 @@ function stockRow(r, m) {
     cover = el("span", { style: "color:var(--muted)" }, "—");
   }
   let action = el("span", {});
-  if (r.group === "restock" && p) {
+  if (r.group === "restock" && r.manual) {
+    /* Manual/wholesale stock has no AliExpress intent to reorder through
+       — restocking means phoning the supplier and Receive stock… again. */
+    action = el("span", { class: "hint" },
+      `reorder from ${r.supplier || "supplier"}`);
+  } else if (r.group === "restock" && p) {
     action = el("button", { class: "b sm pri", onclick: () => openOrderModal(p) }, "Reorder");
   } else if (r.group === "idle" && p) {
     action = el("button", {
@@ -751,6 +923,7 @@ function stockRow(r, m) {
     action = el("span", { class: "hint" }, "🚚 in transit");
   }
   const sub = [];
+  if (r.manual) sub.push(`📦 manual stock${r.supplier ? ` — ${r.supplier}` : ""}`);
   if (r.velocity != null) sub.push(`sells ≈${fmtNum(Math.round(r.velocity))}/mo`);
   if (r.group === "restock" && r.suggestQty) {
     sub.push(`order ≈${r.suggestQty} — position ${r.positionDays != null

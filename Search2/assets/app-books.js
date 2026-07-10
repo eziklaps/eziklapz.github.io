@@ -29,24 +29,29 @@ function renderBooksDesk(root) {
       ((bank.gate || {}).reasons || []).join(" · ")));
   }
 
-  /* Sage bank feed pulse: auth failure / errors / staleness. Ages are
-     computed here at render time — the payload carries timestamps only. */
+  /* Xero feed pulse: auth failure / errors / staleness. Ages are
+     computed here at render time — the payload carries timestamps only.
+     Freshness is RECONCILIATION freshness: the balance's as_of is the
+     newest coded line, so a lazy week in Xero ages toward gate RED. */
   const feed = bank.feed || {};
   const feedAgeDays = feed.synced_at
     ? (Date.now() - new Date(feed.synced_at).getTime()) / 86400e3 : null;
   if (feed.auth_failed_at) {
     root.append(el("div", { class: "warnbar bad" },
-      "Sage bank feed auth FAILED — re-check SAGE_* credentials in .env " +
-      "(or the API key at developerselfservice.sageone.com), then " +
-      "accounting_admin.py sage sync."));
+      "Xero feed auth FAILED — the rotated refresh token was likely " +
+      "lost; re-run accounting_admin.py xero auth (on the VPS)."));
   } else if (feed.error) {
     root.append(el("div", { class: "warnbar" },
-      `Sage bank feed error: ${feed.error} — see accounting_admin.py sage.`));
-  } else if (feed.configured && feedAgeDays != null && feedAgeDays > 2) {
+      `Xero feed error: ${feed.error} — see accounting_admin.py xero.`));
+  } else if (feed.configured && !feed.connected) {
     root.append(el("div", { class: "warnbar" },
-      `Sage bank feed hasn't synced in ${Math.floor(feedAgeDays)}d — the ` +
-      "Capitec link inside Sage may need a re-auth (Banking → refresh), " +
-      "or 'serve' is down. Balance evidence is aging toward gate RED."));
+      "Xero app credentials are in .env but the account isn't connected " +
+      "yet — run accounting_admin.py xero auth (on the VPS)."));
+  } else if (feed.connected && feedAgeDays != null && feedAgeDays > 2) {
+    root.append(el("div", { class: "warnbar" },
+      `Xero feed hasn't synced in ${Math.floor(feedAgeDays)}d — 'serve' ` +
+      "may be down, or the token needs a re-auth. Balance evidence is " +
+      "aging toward gate RED."));
   }
 
   /* awaiting payment + stock chips */
@@ -70,9 +75,11 @@ function renderBooksDesk(root) {
     feed.configured
       ? (feed.synced_at
           ? pill(feedAgeDays > 2 ? "warn" : "ok",
-              `🏦 Sage feed synced ${fmtAgo(feed.synced_at)}` +
+              `🏦 Xero feed synced ${fmtAgo(feed.synced_at)}` +
               (feed.lines_added ? ` · ${feed.lines_added} new` : ""))
-          : pill("warn", "🏦 Sage feed configured — first sync pending"))
+          : pill("warn", feed.connected
+              ? "🏦 Xero feed connected — first sync pending"
+              : "🏦 Xero app configured — auth pending"))
       : null));
 
   /* cash-position cards (statement/manual as-of balances + float) */
@@ -316,7 +323,7 @@ function reconPanel(bank) {
       : (accounts.length ? pill("ok", "fully explained") : null),
   });
   if (!accounts.length) {
-    p.append(emptyLine("no bank lines yet — the Sage feed lands Capitec " +
+    p.append(emptyLine("no bank lines yet — the Xero feed lands Capitec " +
       "lines automatically once connected; Shyft (or any bank) exports " +
       "drop on the Documents panel and the matcher takes it from there"));
     return p;
