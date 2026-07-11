@@ -765,6 +765,23 @@ function courierAct(label, fields) {
   });
 }
 
+/* Best known price for a lane: the newest quote or booking in the runs
+   list that matches destination + service level. Quotes carry the whole
+   rate card; bookings carry the one rate they paid. */
+function courierEstimate(c, destKey, level) {
+  for (const s of c.shipments || []) {
+    if (s.dest !== destKey) continue;
+    if (s.quote_only && (s.rates || []).length) {
+      const o = s.rates.find((r) => r.code === level);
+      if (o) return { rate: o.rate, at: s.created_at, from: "quote" };
+    } else if (!s.quote_only && s.rate != null && s.service_level === level
+               && s.status !== "error") {
+      return { rate: s.rate, at: s.booked_at || s.created_at, from: "booking" };
+    }
+  }
+  return null;
+}
+
 function bookCourierModal(m) {
   withToken(() => {
     const c = m.courier || {};
@@ -817,10 +834,107 @@ function bookCourierModal(m) {
       el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
         el("span", { class: "meta", style: "min-width:70px" }, "confirm"), confirmIn));
     bookRows.style.display = "none";
+
+    /* Pre-flight: prepaid balance vs the lane's best-known price. Booking
+       spends the prepaid account, and TCG just fails opaquely when it's
+       short (R50 on the account vs R117 LOF is the live trap) — so the
+       modal does the arithmetic up front and refuses to arm Send. */
+    const preflight = el("div", { class: "note", style: "margin-top:12px" });
+    const sendBtn = el("button", {
+      class: "b pri wide", style: "margin-top:12px",
+    }, "Send");
+    const syncPreflight = () => {
+      const booking = modeSel.value === "book";
+      sendBtn.removeAttribute("disabled");
+      preflight.className = "note";
+      if (!booking) {
+        preflight.textContent =
+          "💬 Quotes are free — no prepaid balance needed.";
+        return;
+      }
+      const est = courierEstimate(c, destSel.value, levelSel.value);
+      const estText = est
+        ? `~${fmtR(est.rate)} (last ${levelSel.value} ${est.from} ` +
+          `${fmtAgo(est.at)})`
+        : null;
+      const cap = parseFloat(capIn.value);
+      // No estimate for the lane yet → the cap is the spend ceiling.
+      const needed = est ? est.rate : (cap > 0 ? cap : null);
+      if (c.balance == null) {
+        preflight.className = "note warn";
+        preflight.textContent =
+          "⚠ Prepaid balance unknown (first poll pending) — TCG refuses " +
+          "the booking if the account is short." +
+          (estText ? ` Lane estimate ${estText}.` : "");
+        return;
+      }
+      if (needed != null && needed > c.balance) {
+        preflight.className = "note warn";
+        preflight.replaceChildren(
+          el("b", {}, `⛔ Prepaid balance ${fmtR(c.balance)} is short: `),
+          est
+            ? `this lane last cost ${estText}. Top up in the TCG portal ` +
+              "first — or send a free quote to check the current price."
+            : `your ${fmtR(cap)} cap exceeds it, so a booking up to the ` +
+              "cap can fail at TCG. Top up first, or quote (free) to " +
+              "learn the lane price.");
+        sendBtn.setAttribute("disabled", "");
+        return;
+      }
+      preflight.textContent =
+        `✓ Prepaid ${fmtR(c.balance)} covers ` +
+        (estText ? `the ${estText} estimate` : `your ${fmtR(cap)} cap`) +
+        " — the booking still refuses over-cap prices at quote time.";
+    };
     modeSel.addEventListener("change", () => {
       bookRows.style.display = modeSel.value === "book" ? "" : "none";
+      syncPreflight();
     });
+    destSel.addEventListener("change", syncPreflight);
+    levelSel.addEventListener("change", syncPreflight);
+    capIn.addEventListener("input", syncPreflight);
+    syncPreflight();
     const status = statusLine();
+    sendBtn.addEventListener("click", () => {
+      const booking = modeSel.value === "book";
+      const weight = parseFloat(weightIn.value);
+      if (!(weight > 0 && weight <= 50)) {
+        status.textContent = "Weight must be 0–50 kg.";
+        return;
+      }
+      if (booking && confirmIn.value.trim().toUpperCase() !== "BOOK") {
+        status.textContent = "Type BOOK to confirm — this spends prepaid balance.";
+        return;
+      }
+      const cap = parseFloat(capIn.value);
+      if (booking && !(cap > 0)) {
+        status.textContent = "Set a max price cap in Rands.";
+        return;
+      }
+      const entry = {
+        dest: destSel.value,
+        parcels: [{
+          weight_kg: weight,
+          length_cm: parseFloat(dimsIn[0].value) || undefined,
+          width_cm: parseFloat(dimsIn[1].value) || undefined,
+          height_cm: parseFloat(dimsIn[2].value) || undefined,
+        }],
+        asin: asinSel.value || undefined,
+        quantity: asinSel.value ? Number(qtySel.value) : undefined,
+        service_level: levelSel.value,
+        note: noteIn.value.trim() || undefined,
+        requested_at: new Date().toISOString(),
+      };
+      if (booking) entry.max_rate = cap;
+      else entry.quote_only = true;
+      busAct(booking ? "book courier" : "quote courier", (doc) => {
+        const bucket = (doc.courier ??= {});
+        prunePush(bucket, "requests", entry, 2);
+      }, status,
+        booking
+          ? "✅ Sent — the booking (or the refusal with the live price) shows in the runs list within ~30s while 'serve' is up."
+          : "✅ Sent — the quote lands in the runs list within ~30s while 'serve' is up.");
+    });
     openModal(
       el("h3", {}, "Courier run — home → warehouse"),
       el("p", { class: "meta" },
@@ -841,49 +955,8 @@ function bookCourierModal(m) {
         el("span", { class: "meta" }, "×"), dimsIn[2], el("span", { class: "meta" }, "cm")),
       bookRows,
       noteIn,
-      el("button", {
-        class: "b pri wide", style: "margin-top:12px",
-        onclick: () => {
-          const booking = modeSel.value === "book";
-          const weight = parseFloat(weightIn.value);
-          if (!(weight > 0 && weight <= 50)) {
-            status.textContent = "Weight must be 0–50 kg.";
-            return;
-          }
-          if (booking && confirmIn.value.trim().toUpperCase() !== "BOOK") {
-            status.textContent = "Type BOOK to confirm — this spends prepaid balance.";
-            return;
-          }
-          const cap = parseFloat(capIn.value);
-          if (booking && !(cap > 0)) {
-            status.textContent = "Set a max price cap in Rands.";
-            return;
-          }
-          const entry = {
-            dest: destSel.value,
-            parcels: [{
-              weight_kg: weight,
-              length_cm: parseFloat(dimsIn[0].value) || undefined,
-              width_cm: parseFloat(dimsIn[1].value) || undefined,
-              height_cm: parseFloat(dimsIn[2].value) || undefined,
-            }],
-            asin: asinSel.value || undefined,
-            quantity: asinSel.value ? Number(qtySel.value) : undefined,
-            service_level: levelSel.value,
-            note: noteIn.value.trim() || undefined,
-            requested_at: new Date().toISOString(),
-          };
-          if (booking) entry.max_rate = cap;
-          else entry.quote_only = true;
-          busAct(booking ? "book courier" : "quote courier", (doc) => {
-            const bucket = (doc.courier ??= {});
-            prunePush(bucket, "requests", entry, 2);
-          }, status,
-            booking
-              ? "✅ Sent — the booking (or the refusal with the live price) shows in the runs list within ~30s while 'serve' is up."
-              : "✅ Sent — the quote lands in the runs list within ~30s while 'serve' is up.");
-        },
-      }, "Send"),
+      preflight,
+      sendBtn,
       el("button", {
         class: "b wide", style: "margin-top:8px",
         onclick: () => modalEl().close(),
