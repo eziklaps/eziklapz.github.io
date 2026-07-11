@@ -258,11 +258,55 @@ function gatePanel(bank) {
         ? `${gate.age_days}d / ${knobs.max_balance_age_days}d` : "—",
       gate.age_days != null && gate.age_days > (knobs.max_balance_age_days ?? 7)));
 
+  /* Every reason carries its fix. The binding evidence age is the STALEST
+     account (gate takes max of ages), so Confirm pre-targets that one;
+     reconciling in Xero IS the feed, so that link is the other lever. */
+  const stalest = (bank.accounts || [])
+    .filter((a) => a.balance != null)
+    .sort((x, y) => (y.age_days ?? 9e9) - (x.age_days ?? 9e9))[0];
+  const fixFor = (text) => {
+    if (/balance evidence|no balance/.test(text)) {
+      return [
+        el("button", {
+          class: "b sm pri",
+          onclick: () => confirmBalanceModal((stalest || {}).account || null),
+        }, "Confirm balance now"),
+        el("a", {
+          class: "b sm line", target: "_blank", rel: "noopener",
+          href: "https://go.xero.com/Bank/BankAccounts.aspx",
+          title: "coding the newest lines in Xero refreshes the feed's as-of date",
+        }, "Reconcile in Xero ↗"),
+      ];
+    }
+    if (/floor/.test(text)) {
+      return [el("span", { class: "hint" },
+        "fix: money in, or lower the floor knob below")];
+    }
+    if (/in-flight/.test(text)) {
+      return [el("span", { class: "hint" },
+        "clears as orders arrive (Mark received on Buy) — or raise the cap below")];
+    }
+    if (/\/day cap|order left today/.test(text)) {
+      return [el("span", { class: "hint" },
+        "resets at midnight UTC — or raise orders/day below")];
+    }
+    return [];
+  };
   for (const reason of gate.reasons || []) {
-    p.append(el("div", { class: "note warn", style: "margin-top:6px" }, `⛔ ${reason}`));
+    p.append(el("div", { class: "note warn", style: "margin-top:6px" },
+      el("div", {}, `⛔ ${reason}`),
+      el("div", {
+        style: "display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center",
+      }, ...fixFor(reason))));
   }
   for (const note of gate.watch || []) {
-    p.append(el("div", { class: "hint" }, `⚠️ ${note}`));
+    const fixes = fixFor(note);
+    p.append(el("div", {
+      class: "hint", style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap",
+    }, `⚠️ ${note}`,
+      // Watch-stage balance aging gets the one-click fix too — cheaper to
+      // confirm at amber than to unstick a red gate later.
+      ...(/balance evidence/.test(note) ? fixes.slice(0, 1) : [])));
   }
 
   /* knob editing — writes doc.affordability, the pipeline mirrors it */
