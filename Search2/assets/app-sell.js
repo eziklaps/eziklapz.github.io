@@ -50,8 +50,12 @@ function renderSellAmazon(root, az, todos) {
   const p = panelEl("Amazon listing intents", {
     right: enabledPill(az.enabled, "Amazon listing"),
   });
-  if ((az.intents || []).length) {
-    p.append(intentTableEl(az.intents, "amazon", status, { withMargin: false }));
+  // Bus-committed intents the payload doesn't know yet render as
+  // "on the bus" rows — a fresh queue click is visible immediately.
+  const azMerged = [...busListingPhantoms("amazon", az.intents),
+                    ...(az.intents || [])];
+  if (azMerged.length) {
+    p.append(intentTableEl(azMerged, "amazon", status, { withMargin: false }));
   } else {
     p.append(emptyLine("no Amazon listing intents — placed orders auto-create " +
       "them, or queue one by ASIN below"));
@@ -428,8 +432,10 @@ function renderSellTakealot(root, tk) {
             class: "b sm line", onclick: () => downloadLoadsheetEl(tk.loadsheet),
           }, "⬇ Download loadsheet CSV") : null));
   }
-  if ((tk.intents || []).length) {
-    p.append(intentTableEl(tk.intents, "takealot", status, { withMargin: true }));
+  const tkMerged = [...busListingPhantoms("takealot", tk.intents),
+                    ...(tk.intents || [])];
+  if (tkMerged.length) {
+    p.append(intentTableEl(tkMerged, "takealot", status, { withMargin: true }));
   } else {
     p.append(emptyLine("no Takealot listing intents — queue winners from the shelves above"));
   }
@@ -448,6 +454,13 @@ function renderSellTakealot(root, tk) {
 function shelfActionEl(row, handle, statusEl) {
   if (row.intent && !PARKED.has(row.intent.state)) {
     return stateWord(row.intent.state);
+  }
+  // Committed to the bus but not yet an intent — block the double-queue.
+  if (!row.intent && busListingPhantoms("takealot", [])
+      .some((ph) => ph.asin === row.id)) {
+    return el("span", { class: "st warn",
+      title: "committed — the pipeline applies it within ~30s" },
+      "🕐 on the bus");
   }
   if (row.intent) {
     return el("span", {}, stateWord(row.intent.state), " ",

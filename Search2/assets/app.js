@@ -176,12 +176,14 @@ const INTENT_LABEL = {
   loadsheet: "on the loadsheet", offer_ready: "priced — offer queued",
   blocked_exemption: "blocked: GTIN exemption", fix_required: "needs a fix",
   needs_review: "needs review", rejected: "rejected",
+  bus: "🕐 on the bus",
 };
 const INTENT_TONE = {
   pending: "mute", ready: "mute", validated: "ok", submitting: "warn",
   submitted: "ok", live: "ok", loadsheet: "warn", offer_ready: "ok",
   blocked_exemption: "warn", fix_required: "hot", needs_review: "bad",
   rejected: "mute",
+  bus: "warn",
 };
 const PARKED = new Set(["fix_required", "rejected", "needs_review",
                         "blocked_exemption"]);
@@ -284,6 +286,22 @@ function prunePush(doc, key, entry, days = 7) {
   doc[key].push(entry);
 }
 
+/* Every bus write in the app funnels through mutateCommands (common.js) —
+   wrap it once so a successful commit immediately becomes visible state:
+   the returned doc replaces S.commands (no extra read) and the app repaints
+   a beat later, turning "✅ sent" into a queued row on the Recent-commands
+   panel and phantom rows on the desks instead of 60s of silence. The delay
+   leaves the ✅ note readable before the repaint clears it. */
+const _mutateCommandsRaw = mutateCommands;
+mutateCommands = async (mutate, message) => {
+  const doc = await _mutateCommandsRaw(mutate, message);
+  if (doc) {
+    S.commands = doc;
+    setTimeout(() => renderApp(), 4000);
+  }
+  return doc;
+};
+
 /* Typed-confirmation modal (ORDER / LIST): the two commit flows with real
    consequences share one shape. spec = { title, product, lines[], warn,
    word, qtyLabel, qtyDefault, confirmLabel, entryFor(qty), busKey, doneText } */
@@ -354,6 +372,136 @@ async function readCommandsSafe() {
   } catch (e) {
     return null;
   }
+}
+
+/* ---------- pending-command surfacing (the anti-fire-and-forget layer)
+   The bus doc carries every not-yet-pruned entry; the admin payload's
+   activity journal carries what the pipeline actually did, stamped with
+   each entry's requested_at. Everything here is derived: an entry whose
+   stamp appears in the journal is done (the journal row tells the story);
+   an unmatched one is still waiting — or applied silently before the
+   journal existed, which the panel words carefully. ---------- */
+
+function pendingBusEntries() {
+  const c = S.commands;
+  if (!c) return [];
+  const out = [];
+  const push = (kind, label, stamp, ref) => {
+    if (!stamp) return;
+    const age = Date.now() - new Date(stamp).getTime();
+    // Old riders (applied long ago, journal rolled past them) stay quiet.
+    if (!(age > -600e3 && age < 48 * 3600e3)) return;
+    out.push({ kind, label, stamp, ref });
+  };
+  for (const o of c.orders || []) {
+    if (o.cancel) push("order", `Mark ${o.id} cancelled`, o.requested_at, o.id);
+    else if (o.received) {
+      push("order", `Mark ${o.id} received${o.partial ? " (partial)" : ""}`,
+        o.requested_at, o.id);
+    } else {
+      push("order", `Order ${o.quantity || 1} × ${o.asin || o.ali_id}`,
+        o.requested_at, o.id);
+    }
+  }
+  for (const l of c.listings || []) {
+    if (l.grant) push("listing", `Mark exemption granted: ${l.grant}`, l.requested_at, l.grant);
+    else if (l.compliance_clear) push("listing", `Clear ZA compliance: ${l.compliance_clear}`, l.requested_at, l.compliance_clear);
+    else if (l.requeue) push("listing", `Requeue ${l.asin} (${l.channel})`, l.requested_at, l.asin);
+    else push("listing", `List ${l.asin} on ${l.channel}`, l.requested_at, l.asin);
+  }
+  for (const s of c.shipments || []) {
+    push("shipment", `Confirm shipment ${s.order_id}`, s.requested_at, s.order_id);
+  }
+  for (const m of c.messages || []) {
+    push("message", "Mark buyer message handled", m.requested_at, m.id);
+  }
+  const stockBucket = c.stock || {};
+  for (const mv of stockBucket.moves || []) {
+    const what = mv.write_off ? `Write off ${mv.quantity} × ${mv.asin}`
+      : mv.adjust ? `Adjust count: ${mv.asin} ${mv.quantity > 0 ? "+" : ""}${mv.quantity}`
+      : `Move ${mv.quantity} × ${mv.asin} ${mv.from} → ${mv.to}`;
+    push("stock", what, mv.requested_at, mv.asin);
+  }
+  for (const r of stockBucket.receipts || []) {
+    push("stock", `Receive ${r.quantity} × ${r.sku}`, r.requested_at, r.sku);
+  }
+  for (const q of (c.courier || {}).requests || []) {
+    const what = q.cancel ? `Cancel courier ${q.id}`
+      : q.relabel ? `Fresh label for ${q.id}`
+      : q.quote_only ? `Courier quote — ${q.dest}`
+      : `Book courier — ${q.dest}`;
+    push("courier", what, q.requested_at, q.dest || q.id);
+  }
+  const bank = c.banking || {};
+  for (const b of bank.balances || []) {
+    push("books", `Confirm balance: ${b.account} ${fmtR(b.amount)}`, b.requested_at, b.account);
+  }
+  for (const e of bank.expense_lines || []) {
+    push("books", "Post bank line as expense", e.requested_at, e.id);
+  }
+  for (const d of bank.dismiss_lines || []) {
+    push("books", "Dismiss bank line", d.requested_at, d.id);
+  }
+  const acc = c.accounting || {};
+  for (const d of acc.post_docs || []) {
+    push("books", `Post document ${d.id}`, d.requested_at, d.id);
+  }
+  for (const d of acc.ignore_docs || []) {
+    push("books", `Ignore document ${d.id}`, d.requested_at, d.id);
+  }
+  if ((c.affordability || {}).requested_at) {
+    push("books", "Update affordability knobs", c.affordability.requested_at, "affordability");
+  }
+  if ((c.auth || {}).at) push("auth", "AliExpress sign-in code", c.auth.at, "auth");
+  out.sort((x, y) => new Date(y.stamp) - new Date(x.stamp));
+  return out;
+}
+
+function journalStamps() {
+  return new Set(((S.admin || {}).activity || [])
+    .map((row) => row.stamp).filter(Boolean));
+}
+
+/* Order entries committed to the bus that no payload reflects yet — the
+   Buy desk's phantom rows, and the guard that keeps the Order button from
+   double-committing while the pipeline catches up. */
+function busOrderPhantoms() {
+  const c = S.commands;
+  if (!c) return [];
+  const known = new Set(
+    (((S.admin || {}).orders || {}).recent || []).map((r) => r.id));
+  const byAsin = buyerByAsin();
+  return (c.orders || []).filter((o) => {
+    if (o.cancel || o.received || !o.id || !o.requested_at) return false;
+    const age = Date.now() - new Date(o.requested_at).getTime();
+    if (!(age > -600e3 && age < 48 * 3600e3)) return false;
+    if (known.has(o.id)) return false;
+    if ((byAsin[o.asin] || {}).order?.id === o.id) return false;
+    return true;
+  });
+}
+
+function busOrderPhantomForAsin(asin) {
+  return busOrderPhantoms().find((o) => o.asin === asin) || null;
+}
+
+/* Listing entries on the bus with no matching intent in the seller payload
+   yet — rendered as state:"bus" rows in the intent tables. */
+function busListingPhantoms(channel, intents) {
+  const c = S.commands;
+  if (!c) return [];
+  const have = new Set((intents || []).map((i) => i.asin));
+  return (c.listings || []).filter((l) => {
+    if (!l.asin || l.grant || l.compliance_clear || l.requeue) return false;
+    if ((l.channel || "amazon") !== channel || have.has(l.asin)) return false;
+    if (!l.requested_at) return false;
+    const age = Date.now() - new Date(l.requested_at).getTime();
+    return age > -600e3 && age < 48 * 3600e3;
+  }).map((l) => ({
+    id: `bus-${l.asin}`, asin: l.asin, title: l.asin, state: "bus",
+    received_at: l.requested_at,
+    note: "committed — the pipeline applies it within ~30s while serve is up",
+  }));
 }
 
 /* The three double switches: env half from the payloads, remote half from

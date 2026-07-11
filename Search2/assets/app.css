@@ -387,6 +387,15 @@ table.compare tr:last-child th, table.compare tr:last-child td { border-bottom: 
   .needrow .due { display: none; }
   .needrow .act { grid-column: 2; justify-self: start; }
 }
+.cmdrow {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 10px; align-items: start; padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.cmdrow:last-child { border-bottom: 0; }
+.cmdrow .ns { font-size: 12.5px; color: var(--ink2); overflow-wrap: anywhere; }
+.cmdrow .when { text-align: right; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.cmdrow .when .k { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
 .mini { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; font-size: 12.5px; }
 .mini .mrow { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
 .mini .mrow .mr { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }

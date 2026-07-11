@@ -19,6 +19,9 @@ function renderBuyDesk(root) {
   const amazon = products.filter((p) => (p.channel || "amazon") === "amazon");
   const takealot = products.filter((p) => p.channel === "takealot");
   const ordered = products.filter((p) => p.order);
+  // Committed on the bus, not yet in any payload — optimistic rows so a
+  // fresh ORDER shows up here immediately instead of after the next sync.
+  const phantoms = busOrderPhantoms();
 
   const kwBits = ["amazon", "takealot"].filter((m) => kw[m])
     .map((m) => `${m} ${kw[m].pending ?? 0}`).join(" / ");
@@ -49,7 +52,7 @@ function renderBuyDesk(root) {
   root.append(el("div", { class: "tabs" },
     tab("amazon", `Amazon (${amazon.length})`),
     tab("takealot", `Takealot (${takealot.length})`),
-    tab("ordered", `Ordered (${ordered.length})`),
+    tab("ordered", `Ordered (${ordered.length + phantoms.length})`),
     el("div", { style: "flex:1" }),
     search, sort));
 
@@ -81,7 +84,7 @@ function renderBuyDesk(root) {
     const list = currentList();
     const sel = list.find((p) => p.asin === S.buySel) || list[0] || null;
     listWrap.replaceChildren();
-    if (!list.length) {
+    if (!list.length && !(S.buyTab === "ordered" && phantoms.length)) {
       listWrap.append(el("div", { class: "empty", style: "padding:14px" },
         S.buyTab === "ordered"
           ? "Nothing ordered yet — every row has an Order button."
@@ -89,7 +92,7 @@ function renderBuyDesk(root) {
           ? "No Takealot-discovered winners yet — run the pull-takealot stage on Machine."
           : "No winners yet — the pipeline is still hunting."));
     } else if (S.buyTab === "ordered") {
-      listWrap.append(orderedTable(list, sel));
+      listWrap.append(orderedTable(list, sel, phantoms));
       listWrap.append(el("div", { class: "hint", style: "padding:8px 10px" },
         "payment is deliberately manual — AliExpress “Pay all” on My Orders · " +
         "rejected/failed intents free the Order button with the reason on display"));
@@ -131,14 +134,29 @@ function renderBuyDesk(root) {
     return wrap;
   }
 
-  function orderedTable(list, sel) {
+  function orderedTable(list, sel, busPhantoms = []) {
     const byId = {};
     for (const r of ((S.admin || {}).orders || {}).recent || []) byId[r.id] = r;
+    const byAsin = buyerByAsin();
     const table = el("table", { class: "grid" },
       el("tr", {},
         el("th", {}, "Product · intent"), el("th", {}, "State"),
         el("th", {}, "Qty"), el("th", {}, "Cost"), el("th", {}, "When"),
         el("th", {}, "Tracking / note")));
+    for (const o of busPhantoms) {
+      const p = byAsin[o.asin] || {};
+      table.append(el("tr", {},
+        el("td", { class: "t" },
+          el("div", { class: "rowtitle" }, p.title || o.asin),
+          el("div", { class: "rowsub" }, o.id)),
+        el("td", { class: "t" }, el("span", { class: "st warn" }, "🕐 on the bus")),
+        el("td", {}, fmtNum(o.quantity || 1)),
+        el("td", {}, "—"),
+        el("td", { class: "t" }, fmtAgo(o.requested_at)),
+        el("td", { class: "t", style: "font-size:11.5px" },
+          "committed — the pipeline picks it up within ~30s while a run " +
+          "or serve is active")));
+    }
     for (const p of list) {
       const o = p.order;
       const joined = byId[o.id] || {};
@@ -270,6 +288,13 @@ function buyRowAction(p) {
       class: "b sm line",
       onclick: (ev) => { ev.stopPropagation(); S.buySel = p.asin; S.buyTab = "ordered"; renderDesk(); },
     }, "Track");
+  }
+  // Already committed to the bus this session — block the double-order
+  // (a second click would mint a fresh intent id and order twice).
+  if (busOrderPhantomForAsin(p.asin)) {
+    return el("span", { class: "st warn",
+      title: "order committed — the pipeline picks it up within ~30s" },
+      "🕐 on the bus");
   }
   const again = o && (o.state === "received" || o.state === "rejected"
     || o.state === "failed" || o.state === "cancelled");
@@ -415,12 +440,19 @@ function buyDetail(p) {
 
   /* order button */
   if (!o || ["received", "rejected", "failed", "cancelled"].includes(o.state)) {
-    card.append(el("button", {
-      class: "b pri wide", style: "margin-top:12px",
-      onclick: () => openOrderModal(p),
-    }, `Order${o ? " again" : ""} from AliExpress…`));
-    card.append(el("div", { class: "hint", style: "margin-top:6px;text-align:center" },
-      "re-verifies price, freight, restrictions & margin before placing"));
+    if (busOrderPhantomForAsin(p.asin)) {
+      card.append(el("div", { class: "note warn", style: "margin-top:12px" },
+        el("b", {}, "🕐 Order committed. "),
+        "It's on the command bus — the pipeline verifies and places it " +
+        "within ~30s while a run or serve is active."));
+    } else {
+      card.append(el("button", {
+        class: "b pri wide", style: "margin-top:12px",
+        onclick: () => openOrderModal(p),
+      }, `Order${o ? " again" : ""} from AliExpress…`));
+      card.append(el("div", { class: "hint", style: "margin-top:6px;text-align:center" },
+        "re-verifies price, freight, restrictions & margin before placing"));
+    }
   }
   return card;
 }

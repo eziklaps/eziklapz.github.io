@@ -77,6 +77,7 @@ function renderTodayDesk(root) {
   root.append(el("div", { class: "todaygrid" },
     needsPanel,
     el("div", { style: "display:flex;flex-direction:column;gap:16px" },
+      recentCommandsPanel(a),
       machineMini(a),
       freshDataPanel(a),
       killSwitchPanel()),
@@ -119,6 +120,73 @@ function kpi(label, value, sub) {
     el("div", { class: "l" }, label),
     el("div", { class: "v" }, value),
     sub ? el("div", { class: "s" }, sub) : null);
+}
+
+/* Recent commands: every dashboard click, from "on the bus" to "applied"
+   (or FAILED) — the answer to the app going quiet after "✅ sent". Waiting
+   entries come from the bus doc (token-gated read); applied/failed rows are
+   the pipeline's own journal riding the admin payload. */
+function recentCommandsPanel(a) {
+  const journal = a.activity || [];
+  const stamps = journalStamps();
+  const genAt = a.generated_at ? new Date(a.generated_at).getTime() : 0;
+  // Journal stamp missing + a payload built well after the entry hit the
+  // bus = the sinks saw it and changed nothing (usually a replayed click).
+  const pending = pendingBusEntries().filter((e) => !stamps.has(e.stamp))
+    .map((e) => ({
+      ...e,
+      seen: genAt > new Date(e.stamp).getTime() + 45e3,
+    }));
+  const waiting = pending.filter((e) => !e.seen);
+
+  const p = panelEl("Recent commands", {
+    right: waiting.length
+      ? el("span", { class: "st warn" }, `${waiting.length} waiting`)
+      : el("span", { class: "st ok" }, "all applied"),
+  });
+
+  const rows = [
+    ...pending.map((e) => ({
+      tone: e.seen ? "mute" : "warn",
+      icon: e.seen ? "·" : "⏳",
+      text: e.label + (e.seen ? " — no change recorded (already applied?)" : ""),
+      at: e.stamp, kind: e.kind,
+      title: e.seen
+        ? "the pipeline read the bus after this entry but journalled no change — " +
+          "usually a replayed click or an entry from before the journal existed"
+        : "committed to the bus — the pipeline applies commands within ~30s " +
+          "while a run or serve is active",
+    })),
+    ...journal.map((r) => ({
+      tone: r.ok ? "ok" : "bad",
+      icon: r.ok ? "✓" : "✗",
+      text: r.message, at: r.at, kind: r.kind, title: "",
+    })),
+  ];
+
+  if (!rows.length) {
+    p.append(emptyLine(S.commands
+      ? "no commands yet — actions you take land here with their outcome"
+      : "applied commands land here — take any action to unlock the " +
+        "waiting-queue view too"));
+    return p;
+  }
+  const CAP = 10;
+  for (const r of rows.slice(0, CAP)) {
+    p.append(el("div", { class: "cmdrow", title: r.title },
+      dotEl(r.tone, true),
+      el("div", { class: "ns",
+                  style: r.tone === "bad" ? "color:var(--bad)" : "" },
+        `${r.icon} ${r.text}`),
+      el("div", { class: "when" },
+        el("span", { class: "k" }, r.kind),
+        agoSpan(r.at))));
+  }
+  if (rows.length > CAP) {
+    p.append(el("div", { class: "hint", style: "padding:4px 0 0" },
+      `…${rows.length - CAP} more in the 30-day journal`));
+  }
+  return p;
 }
 
 /* Machine mini-panel: lane dots + the top of the backlog. */
