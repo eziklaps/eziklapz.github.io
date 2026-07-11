@@ -22,9 +22,10 @@
         <p class="sub" style="margin-top:10px">
           Normally serve picks the code up by itself — this box is the manual
           fallback: run <code>python runtime.py auth</code> on the pipeline
-          machine and paste the code at its prompt (in a classic Windows
-          console paste with a <strong>right-click</strong>, not Ctrl-V).
-          The code is single-use and expires in minutes.
+          machine (the VPS — not a dev laptop; the exchanged token must land
+          in the pipeline's own runtime state) and paste the code at its
+          prompt (in a console, paste with a <strong>right-click</strong>,
+          not Ctrl-V). The code is single-use and expires in minutes.
         </p>
       </div>
     </section>
@@ -34,12 +35,17 @@
     /* The OAuth redirect lands here (the AliExpress console only accepts
        https callback URLs). Hand-off order:
        1. Command bus — publish {code, at} as doc.auth via mutateCommands
-          (common.js), using the dashboard admin token this browser already
-          holds from the admin/user pages (same origin, same localStorage).
-          serve's long-poll wakes on the write and exchanges the code
-          itself ('python runtime.py auth' polls the same blob as fallback).
+          (common.js). The bearer is passphrase-derived: reuse the token
+          this browser stored on the app/admin pages (same origin, same
+          localStorage), else derive one from the remembered gate
+          passphrase. A 401/403 drops the stored token and re-derives
+          once — a bearer from before a Worker-secret rotation must not
+          strand the callback. serve's long-poll wakes on the write and
+          exchanges the code itself ('python runtime.py auth' polls the
+          same blob as fallback).
        2. localhost catcher — legacy path; blocked by Chrome's Local
-          Network Access on public pages, but harmless to try.
+          Network Access on public pages, and nothing listens there since
+          serve moved to the VPS, but harmless to try.
        3. The copy-paste box above, always shown. */
     const LOCAL_CATCHER = "http://127.0.0.1:8686/aliexpress/callback";
 
@@ -60,7 +66,42 @@
         } catch (e) { /* clipboard blocked — the code is selectable above */ }
       });
 
-      function tryLocalhost() {
+      async function deliverViaBus() {
+        if (typeof mutateCommands !== "function") return "no-token";
+        status.textContent = "Delivering the code over the command bus…";
+        if (!localStorage.getItem(PAT_KEY)) {
+          await adoptBusToken(localStorage.getItem(PASS_KEY));
+        }
+        if (!localStorage.getItem(PAT_KEY)) return "no-token";
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            await mutateCommands((doc) => {
+              doc.auth = { code, at: new Date().toISOString() };
+            }, "Dashboard: AliExpress auth code");
+            return "delivered";
+          } catch (e) {
+            if (!/401|403/.test(e.message)) return "failed";
+            // Stale bearer (e.g. pre-rotation): drop it and re-derive from
+            // the remembered passphrase. adoptBusToken refuses to re-store
+            // a value the Worker already rejected, so this can't loop.
+            localStorage.removeItem(PAT_KEY);
+            const ok = await adoptBusToken(localStorage.getItem(PASS_KEY));
+            if (!ok) return "rejected";
+          }
+        }
+        return "rejected";
+      }
+
+      const BUS_EXCUSES = {
+        "no-token": "this browser holds no dashboard token or remembered " +
+          "passphrase — unlock the app here once, then restart the sign-in",
+        "rejected": "this browser's dashboard token was rejected and a " +
+          "fresh one couldn't be derived — lock and unlock the app here, " +
+          "then restart the sign-in",
+        "failed": "the command bus write failed",
+      };
+
+      function tryLocalhost(busOutcome) {
         status.textContent = "Trying the local catcher on this machine…";
         fetch(`${LOCAL_CATCHER}?code=${encodeURIComponent(code)}`,
               { mode: "no-cors", cache: "no-store" })
@@ -69,27 +110,22 @@
               "check the 'python runtime.py auth' terminal.";
           })
           .catch(() => {
-            status.textContent = "⚠ Couldn't deliver automatically (no " +
-              "dashboard token in this browser and localhost is blocked). " +
-              "Copy the code below and paste it into the auth prompt.";
+            status.textContent = "⚠ Couldn't deliver automatically: " +
+              (BUS_EXCUSES[busOutcome] || busOutcome) + "; localhost is " +
+              "blocked too. Copy the code below and paste it into the " +
+              "auth prompt.";
           });
       }
 
-      if (typeof mutateCommands === "function"
-          && localStorage.getItem(PAT_KEY)) {
-        status.textContent = "Delivering the code over the command bus…";
-        mutateCommands((doc) => {
-          doc.auth = { code, at: new Date().toISOString() };
-        }, "Dashboard: AliExpress auth code")
-          .then(() => {
-            status.textContent = "✅ Code delivered — serve exchanges it " +
-              "automatically within seconds. You can close this tab; the " +
-              "dashboard's AliExpress warning clears on its next refresh.";
-          })
-          .catch(() => tryLocalhost());
-      } else {
-        tryLocalhost();
-      }
+      deliverViaBus().then((outcome) => {
+        if (outcome === "delivered") {
+          status.textContent = "✅ Code delivered — serve exchanges it " +
+            "automatically within seconds. You can close this tab; the " +
+            "dashboard's AliExpress warning clears on its next refresh.";
+        } else {
+          tryLocalhost(outcome);
+        }
+      });
     });
   </script>
 </body>
