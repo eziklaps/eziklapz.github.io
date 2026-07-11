@@ -573,11 +573,23 @@ function needsYouItems() {
         title: "replying from the mailbox routes back through Amazon and stops the SLA clock",
       }, "Open mailbox ↗");
     } else if (it.kind === "ship_amazon_order") {
-      action = el("button", { class: "b sm line", onclick: () => setDesk("sell") }, "Open on Sell");
+      action = el("button", {
+        class: "b sm line",
+        onclick: () => setDesk("sell", { sellTab: "amazon", focus: it.order_id }),
+      }, "Open on Sell");
     } else if (it.kind === "ship_takealot_dc") {
-      action = el("button", { class: "b sm line", onclick: () => setDesk("stock") }, "Open on Stock");
+      action = el("button", {
+        class: "b sm line",
+        onclick: () => setDesk("stock", { focus: it.asin || "stock-table" }),
+      }, "Open on Stock");
     } else if (it.kind === "confirm_received") {
-      action = el("button", { class: "b sm line", onclick: () => setDesk("buy", { buyTab: "ordered" }) }, "Open on Buy");
+      action = el("button", {
+        class: "b sm line",
+        onclick: () => setDesk("buy", {
+          buyTab: "ordered", focus: it.asin,
+          ...(it.asin ? { buySel: it.asin } : {}),
+        }),
+      }, "Open on Buy");
     } else if (order) {
       action = el("a", {
         class: "b sm line", target: "_blank", rel: "noopener",
@@ -662,7 +674,10 @@ function needsYouItems() {
       title: `GTIN exemption needed — ${ex.product_type}`,
       sub: `${ex.count} intent${ex.count > 1 ? "s" : ""} blocked · ${(ex.asins || []).join(", ")} · needs 2–9 photos of the physical product`,
       dueLabel: "~48h review",
-      action: el("button", { class: "b sm line", onclick: () => setDesk("sell") }, "Open on Sell"),
+      action: el("button", {
+        class: "b sm line",
+        onclick: () => setDesk("sell", { sellTab: "amazon", focus: ex.product_type }),
+      }, "Open on Sell"),
     });
   }
   const blocked = (todos.compliance || []).filter((c) => c.risk === "blocked");
@@ -671,7 +686,10 @@ function needsYouItems() {
       tone: "warn",
       title: `ZA compliance — ${blocked.length} blocked ASIN${blocked.length > 1 ? "s" : ""}`,
       sub: "regulator approval legally required (ICASA/NRCS) — zero-scored until cleared",
-      action: el("button", { class: "b sm line", onclick: () => setDesk("sell") }, "Open on Sell"),
+      action: el("button", {
+        class: "b sm line",
+        onclick: () => setDesk("sell", { sellTab: "amazon", focus: blocked[0].asin }),
+      }, "Open on Sell"),
     });
   }
 
@@ -682,8 +700,9 @@ function needsYouItems() {
       title: "Affordability gate RED — order placements held",
       sub: (gate.reasons || []).join(" · ") +
         " · a fresh statement or balance confirm reopens it",
-      action: el("button", { class: "b sm line", onclick: () => setDesk("books") },
-        "Open on Books"),
+      action: el("button", {
+        class: "b sm line", onclick: () => setDesk("books", { focus: "gate" }),
+      }, "Open on Books"),
     });
   }
 
@@ -693,8 +712,9 @@ function needsYouItems() {
       tone: "warn",
       title: `${exceptions} bank line${exceptions > 1 ? "s" : ""} the books can't explain`,
       sub: "match, post as expense, or dismiss on the reconciliation workbench",
-      action: el("button", { class: "b sm line", onclick: () => setDesk("books") },
-        "Open on Books"),
+      action: el("button", {
+        class: "b sm line", onclick: () => setDesk("books", { focus: "recon" }),
+      }, "Open on Books"),
     });
   }
 
@@ -709,8 +729,9 @@ function needsYouItems() {
           ? ` ${d.currency || ""} ${fmtNum(d.total_amount)}` : ""}`).join(" · ")
         + " · suggested ledger rows ready",
       dueLabel: "nothing posts unreviewed",
-      action: el("button", { class: "b sm line", onclick: () => setDesk("books") },
-        `Review ${docs.length}`),
+      action: el("button", {
+        class: "b sm line", onclick: () => setDesk("books", { focus: "documents" }),
+      }, `Review ${docs.length}`),
     });
   }
 
@@ -857,6 +878,21 @@ function setDesk(desk, extra = {}) {
   renderApp();
   document.querySelector(".main").scrollTop = 0;
   window.scrollTo(0, 0);
+  applyFocus();
+}
+
+/* One-shot deep-link landing: setDesk(..., { focus: "<key>" }) scrolls to
+   the [data-focus="<key>"] node the desk just rendered and flashes it, so
+   cross-desk buttons land ON the item instead of at the top of the desk. */
+function applyFocus() {
+  const key = S.focus;
+  S.focus = null;
+  if (!key) return;
+  const node = document.querySelector(`[data-focus="${CSS.escape(key)}"]`);
+  if (!node) return;
+  node.scrollIntoView({ block: "center", behavior: "smooth" });
+  node.classList.add("focus-flash");
+  setTimeout(() => node.classList.remove("focus-flash"), 2600);
 }
 
 /* app.js loads last (see app/index.html), so the desk renderers defined in

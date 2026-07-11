@@ -69,7 +69,7 @@ function renderBooksDesk(root) {
     inv.rows
       ? el("span", {
           class: "pill ok", style: "cursor:pointer",
-          onclick: () => setDesk("stock"),
+          onclick: () => setDesk("stock", { focus: "stock-table" }),
         }, `📥 ${fmtNum(inv.units)} units on hand — ${fmtR(inv.value_rand)} landed (estimate) · Stock desk →`)
       : null,
     feed.configured
@@ -235,6 +235,7 @@ function gatePanel(bank) {
     right: pill(GATE_TONE[gate.status] || "mute",
       (gate.status || "?").toUpperCase()),
   });
+  p.dataset.focus = "gate";
   p.append(el("div", { class: "hint" }, GATE_WORD[gate.status] || ""));
 
   const dim = (label, value, bad) => el("div", { class: "kvrow" },
@@ -322,6 +323,7 @@ function reconPanel(bank) {
       ? pill("warn", `${recon.unmatched_total} unmatched`)
       : (accounts.length ? pill("ok", "fully explained") : null),
   });
+  p.dataset.focus = "recon";
   if (!accounts.length) {
     p.append(emptyLine("no bank lines yet — the Xero feed lands Capitec " +
       "lines automatically once connected; Shyft (or any bank) exports " +
@@ -497,6 +499,7 @@ function docsPanelEl(acc) {
   const p = panelEl("Documents & evidence", {
     soft: "— upload → Gemini reads → you post",
   });
+  p.dataset.focus = "documents";
 
   const transit = el("div", { class: "hint", style: "margin-top:6px" });
   async function loadTransit() {

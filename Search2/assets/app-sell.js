@@ -108,7 +108,10 @@ function sellTodosPanel(todos) {
   }
 
   for (const ex of exemptions) {
-    p.append(el("div", { class: "warnbar", style: "margin-bottom:6px" },
+    p.append(el("div", {
+      class: "warnbar", style: "margin-bottom:6px",
+      "data-focus": ex.product_type,
+    },
       el("span", { style: "font-weight:600" },
         `GTIN exemption needed: ${ex.product_type} — ${ex.count} intent${ex.count > 1 ? "s" : ""}`),
       el("span", { class: "mono", style: "color:var(--ink2);font-size:12px" },
@@ -138,7 +141,7 @@ function sellTodosPanel(todos) {
         el("th", {}, "Restriction"), el("th", {}, ""), el("th", {}, "Checked")));
     for (const r of restricted) {
       const link = (r.links || [])[0];
-      table.append(el("tr", {},
+      table.append(el("tr", { "data-focus": r.asin },
         el("td", { class: "t mono" }, el("a", {
           href: `https://www.amazon.co.za/dp/${r.asin}`,
           target: "_blank", rel: "noopener",
@@ -166,7 +169,7 @@ function sellTodosPanel(todos) {
     for (const c of compliance) {
       const needs = [...(c.requires || []), ...(c.flags || [])]
         .map((k) => k.replace(/_/g, " ")).join(", ");
-      table.append(el("tr", {},
+      table.append(el("tr", { "data-focus": c.asin },
         el("td", { class: "t mono" }, el("a", {
           href: `https://www.amazon.co.za/dp/${c.asin}`,
           target: "_blank", rel: "noopener",
@@ -206,7 +209,7 @@ function intentTableEl(intents, channel, statusEl, { withMargin } = {}) {
       withMargin ? el("th", {}, "Margin") : null,
       el("th", {}, "When"), el("th", {}, "Last note"), el("th", {}, "")));
   for (const it of intents) {
-    table.append(el("tr", {},
+    table.append(el("tr", { "data-focus": it.asin || "" },
       el("td", { class: "t" },
         el("span", { class: "rowtitle", title: it.id }, it.title || it.asin || it.id)),
       el("td", { class: "t" }, stateWord(it.state)),
@@ -252,7 +255,7 @@ function sellSalesPanel(sales, label) {
         el("th", {}, "When"),
         shippable ? el("th", {}, "Fulfilment (MFN)") : null));
     for (const s of recent) {
-      table.append(el("tr", {},
+      table.append(el("tr", { "data-focus": s.order_id || "" },
         el("td", { class: "t mono", style: "font-size:11.5px" }, s.order_id),
         el("td", { class: "t" }, el("span", { class: "rowtitle" }, s.title || s.sku || "—")),
         el("td", {}, fmtNum(s.quantity)),
@@ -361,7 +364,7 @@ function renderSellTakealot(root, tk) {
         el("th", {}, "Margin"), el("th", {}, "Their price"),
         el("th", {}, "Offers"), el("th", {}, "Barcode"), el("th", {}, "")));
     for (const o of tk.offerable) {
-      table.append(el("tr", {},
+      table.append(el("tr", { "data-focus": o.id || "" },
         el("td", { class: "t" }, o.url
           ? el("a", { href: o.url, target: "_blank", rel: "noopener", class: "rowtitle" }, o.title || o.id)
           : el("span", { class: "rowtitle" }, o.title || o.id)),
@@ -393,7 +396,7 @@ function renderSellTakealot(root, tk) {
         el("th", {}, "Margin"), el("th", {}, "Amazon"), el("th", {}, "Takealot"),
         el("th", {}, "Offers"), el("th", {}, "")));
     for (const m of tk.matched) {
-      table.append(el("tr", {},
+      table.append(el("tr", { "data-focus": m.id || "" },
         el("td", { class: "t" }, m.url
           ? el("a", { href: m.url, target: "_blank", rel: "noopener", class: "rowtitle" }, m.title || m.id)
           : el("span", { class: "rowtitle" }, m.title || m.id)),

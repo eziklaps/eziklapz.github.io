@@ -558,6 +558,7 @@ function renderStockDesk(root) {
       el("a", { onclick: () => receiveStockModal(m), style: "cursor:pointer" },
         "Receive stock…")),
   });
+  tablePanel.dataset.focus = "stock-table";
   const groups = [
     ["restock", "Restock — below the reorder point, incl. inbound", "bad"],
     ["idle", "Idle — on hand but not selling", "warn"],
@@ -990,7 +991,10 @@ function stockRow(r, m) {
   } else if (r.group === "idle" && p) {
     action = el("button", {
       class: "b sm line",
-      onclick: () => setDesk("sell", { sellTab: p.channel === "takealot" ? "takealot" : "amazon" }),
+      onclick: () => setDesk("sell", {
+        sellTab: p.channel === "takealot" ? "takealot" : "amazon",
+        focus: r.asin,
+      }),
     }, "Queue listing →");
   } else if (r.group === "transit") {
     action = el("span", { class: "hint" }, "🚚 in transit");
@@ -1015,7 +1019,7 @@ function stockRow(r, m) {
     sub.push("⚠ negative — a sale outran the receipts, check the log");
   }
   const canMove = Object.values(r.locs || {}).some((v) => v > 0);
-  return el("tr", {},
+  return el("tr", { "data-focus": r.asin || "" },
     el("td", { class: "t" },
       el("div", { class: "rowtitle" }, r.title),
       sub.length ? el("div", { class: "rowsub" }, sub.join(" · ")) : null),

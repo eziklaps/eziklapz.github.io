@@ -387,6 +387,11 @@ table.compare tr:last-child th, table.compare tr:last-child td { border-bottom: 
   .needrow .due { display: none; }
   .needrow .act { grid-column: 2; justify-self: start; }
 }
+@keyframes focusflash {
+  0%, 55% { background: var(--acc-bg); box-shadow: inset 3px 0 0 var(--acc); }
+  100% { background: transparent; box-shadow: none; }
+}
+.focus-flash, tr.focus-flash > td { animation: focusflash 2.4s ease-out; }
 .cmdrow {
   display: grid; grid-template-columns: 12px minmax(0, 1fr) auto;
   gap: 10px; align-items: start; padding: 8px 0;

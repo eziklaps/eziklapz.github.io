@@ -115,6 +115,7 @@ function renderBuyDesk(root) {
     for (const p of capped) {
       table.append(el("tr", {
         class: `click${sel && sel.asin === p.asin ? " sel" : ""}`,
+        "data-focus": p.asin,
         onclick: () => { S.buySel = p.asin; renderList(); },
       },
         el("td", {}, thumbEl(p)),
@@ -172,6 +173,7 @@ function renderBuyDesk(root) {
       }
       table.append(el("tr", {
         class: `click${sel && sel.asin === p.asin ? " sel" : ""}`,
+        "data-focus": p.asin,
         onclick: () => { S.buySel = p.asin; renderList(); },
       },
         el("td", { class: "t" },
@@ -326,14 +328,15 @@ function buyDetail(p) {
   if (p.listing) {
     chips.append(el("span", {
       class: "tag", style: "cursor:pointer",
-      title: p.listing.note || "", onclick: () => setDesk("sell"),
+      title: p.listing.note || "",
+      onclick: () => setDesk("sell", { sellTab: "amazon", focus: p.asin }),
     }, `Amazon listing: ${INTENT_LABEL[p.listing.state] || p.listing.state} →`));
   }
   if (p.takealot) {
     chips.append(el("span", {
       class: `tag${p.takealot.state === "live" ? " ok" : ""}`, style: "cursor:pointer",
       title: p.takealot.note || "",
-      onclick: () => setDesk("sell", { sellTab: "takealot" }),
+      onclick: () => setDesk("sell", { sellTab: "takealot", focus: p.asin }),
     }, `Takealot offer: ${INTENT_LABEL[p.takealot.state] || p.takealot.state} →`));
   }
   card.append(chips);
