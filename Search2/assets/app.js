@@ -304,13 +304,21 @@ mutateCommands = async (mutate, message) => {
 
 /* Typed-confirmation modal (ORDER / LIST): the two commit flows with real
    consequences share one shape. spec = { title, product, lines[], warn,
-   word, qtyLabel, qtyDefault, confirmLabel, entryFor(qty), busKey, doneText } */
+   word, qtyLabel, qtyDefault, confirmLabel, entryFor(qty), busKey, doneText,
+   spendFor(qty)? — a node with the money math, re-built when qty changes } */
 function typedCommitModal(spec) {
   withToken(() => {
     const qtySelect = el("select", { class: "in" },
       ...[1, 2, 3, 4, 5].map((n) => el("option", {
         value: n, ...(n === (spec.qtyDefault || 1) ? { selected: "" } : {}),
       }, `${n}`)));
+    const spendWrap = spec.spendFor ? el("div", {}) : null;
+    const syncSpend = () => {
+      if (!spendWrap) return;
+      spendWrap.replaceChildren(spec.spendFor(Number(qtySelect.value)) || "");
+    };
+    qtySelect.addEventListener("change", syncSpend);
+    syncSpend();
     const confirmInput = el("input", {
       type: "text", class: "in wide", style: "margin-top:12px",
       placeholder: `Type ${spec.word} to arm the button`,
@@ -351,6 +359,7 @@ function typedCommitModal(spec) {
       spec.warn ? el("div", { class: "note warn", style: "margin-top:12px" }, spec.warn) : null,
       el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:14px" },
         el("span", { class: "meta" }, spec.qtyLabel || "Quantity"), qtySelect),
+      spendWrap,
       spec.note ? el("div", { class: "note", style: "margin-top:12px" }, spec.note) : null,
       confirmInput, commitBtn,
       el("button", {

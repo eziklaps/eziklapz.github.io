@@ -563,6 +563,62 @@ function trendSection(p) {
 
 /* ---------- order flows ---------- */
 
+/* The money math at the commit point: what the card pays AliExpress now
+   vs what SARS collects at import — the same landed-cost model
+   services/margin.py prices margins with (duty on goods; import VAT =
+   (goods × 1.10 uplift + duty) × 15%). The freight figure is the
+   payload's single-unit shipment quote; multi-unit freight re-quotes
+   live at verification, so it's labelled, not multiplied. */
+function orderSpendBox(p, qty) {
+  const unit = p.sku_price ?? p.ali_price_used;
+  if (unit == null) return null;
+  const goods = unit * qty;
+  const freight = p.freight != null ? Number(p.freight) : null;
+  const pct = p.import_percentage != null ? Number(p.import_percentage) : null;
+  const duty = pct != null ? goods * (pct / 100) : null;
+  const vat = duty != null ? (goods * 1.10 + duty) * 0.15 : null;
+  const payNow = goods + (freight || 0);
+  const landed = payNow + (duty || 0) + (vat || 0);
+  const row = (k, v, bold) => el("div", {
+    class: "kvrow", style: bold ? "font-weight:650" : "",
+  }, el("span", { class: "k", style: bold ? "color:var(--ink)" : "" }, k),
+     el("span", { class: "v" }, v));
+  return el("div", { class: "note", style: "margin-top:12px" },
+    row(`Goods — ${qty} × ${fmtR(unit)}`, fmtR(goods)),
+    row("Freight (one shipment — single-unit quote)",
+        freight != null ? fmtR(freight) : "—"),
+    row("You pay AliExpress", `≈ ${fmtR(payNow)}`, true),
+    row(`SARS duty at import (${pct != null ? pct + "%" : "?"}` +
+        `${p.is_fallback_duty ? " fallback" : ""})`,
+        duty != null ? fmtR(duty) : "—"),
+    row("Import VAT ((goods ×1.10 + duty) ×15%)",
+        vat != null ? fmtR(vat) : "—"),
+    row("All-in landed", `≈ ${fmtR(landed)}`, true),
+    el("div", { class: "hint", style: "margin-top:6px" },
+      "estimates from the last sweep — price, freight and margin re-verify " +
+      "live before anything places; multi-unit freight re-quotes then"));
+}
+
+/* Commit-point gate banner: RED means the intent will queue and verify
+   but placement HOLDS (services/ordering reads the same gate). */
+function orderGateWarn() {
+  const gate = (((S.admin || {}).banking) || {}).gate || {};
+  if (gate.status === "red") {
+    return el("span", {},
+      el("b", {}, "⛔ Affordability gate RED — placement holds. "),
+      `${(gate.reasons || []).join(" · ") || "no cash evidence"}. ` +
+      "The intent still queues and verifies, but nothing places until the " +
+      "gate reopens — a fresh statement or balance confirm on Books does it.");
+  }
+  if (gate.status === "amber") {
+    return el("span", {},
+      el("b", {}, "▲ Affordability gate AMBER. "),
+      `${(gate.watch || []).join(" · ")} — placements still run; ` +
+      "a fresh balance confirm keeps it green.");
+  }
+  return null;
+}
+
 function openOrderModal(p) {
   if (!p.ali_id || !p.sku_id) {
     openModal(
@@ -578,11 +634,14 @@ function openOrderModal(p) {
     title: "Order from AliExpress",
     product: p.title,
     lines: [`item ${p.ali_id} · SKU ${p.sku_id} · ~${fmtR(unitCost)}/unit` +
-            `${p.freight != null ? ` + ${fmtR(p.freight)} freight` : ""} (re-verified at order time)`],
+            ` · margin ${fmtR(p.margin_total)} (${p.margin_percent ?? "—"}%) at ` +
+            `${p.channel === "takealot" ? "Takealot" : "Amazon"} price`],
+    warn: orderGateWarn(),
     word: "ORDER",
     qtyLabel: "Quantity",
     confirmLabel: "Commit order intent",
     busKey: "orders",
+    spendFor: (qty) => orderSpendBox(p, qty),
     note: "The pipeline only places this if it still clears the margin floor, " +
       "stock, restrictions and the daily caps — and payment is completed on " +
       "aliexpress.com afterwards.",
