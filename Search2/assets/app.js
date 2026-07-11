@@ -17,6 +17,11 @@ const DESKS = [
   ["books", "Books"],
 ];
 
+// Manage A-to-z Guarantee claims (Seller Central) — responding THERE is
+// the only thing that stops a claim's clock; nothing local touches it.
+const ATOZ_CLAIMS_URL =
+  "https://sellercentral.amazon.co.za/gp/guarantee-claims/homepage.html";
+
 const S = {
   desk: (location.hash || "").replace("#", "") || "today",
   admin: null, buyer: null, seller: null,
@@ -554,7 +559,20 @@ function needsYouItems() {
     const order = (it.ae_order_ids || [])[0];
     const tone = { critical: "bad", serious: "hot", warning: "warn" }[it.severity] || "warn";
     let action = null;
-    if (it.kind === "ship_amazon_order") {
+    if (it.kind === "a_to_z") {
+      // Never "Mark handled" here — only a response in Seller Central
+      // stops Amazon's clock; the claim auto-grants if it runs out.
+      action = el("a", {
+        class: "b sm pri", href: ATOZ_CLAIMS_URL,
+        target: "_blank", rel: "noopener",
+      }, "Respond to claim ↗");
+    } else if (it.kind === "buyer_message") {
+      action = el("a", {
+        class: "b sm line", href: "https://mail.google.com/",
+        target: "_blank", rel: "noopener",
+        title: "replying from the mailbox routes back through Amazon and stops the SLA clock",
+      }, "Open mailbox ↗");
+    } else if (it.kind === "ship_amazon_order") {
       action = el("button", { class: "b sm line", onclick: () => setDesk("sell") }, "Open on Sell");
     } else if (it.kind === "ship_takealot_dc") {
       action = el("button", { class: "b sm line", onclick: () => setDesk("stock") }, "Open on Stock");
@@ -583,26 +601,41 @@ function needsYouItems() {
   for (const m of bm.unhandled || []) {
     // The attention queue may already carry mailbox items; dedupe by id.
     if ((a.attention || []).some((it) => it.intent_id === m.id)) continue;
+    const isClaim = m.kind === "a_to_z";
+    const markBtn = (label, cls, title) => el("button", {
+      class: `b sm ${cls}`, ...(title ? { title } : {}),
+      onclick: (ev) => {
+        const btn = ev.target;
+        busAct(`mark message handled`, (doc) => {
+          const fresh = (doc.messages || []).filter((x) =>
+            x.id !== m.id && x.requested_at &&
+            Date.now() - new Date(x.requested_at) < 2 * 864e5);
+          fresh.push({ id: m.id, handled: true,
+                       requested_at: new Date().toISOString() });
+          doc.messages = fresh;
+        }, null);
+        btn.replaceWith(el("span", { class: "st ok" }, "✓ sent"));
+      },
+    }, label);
     items.push({
-      tone: m.kind === "a_to_z" ? "bad" : "warn",
-      title: m.kind === "a_to_z" ? "A-to-Z claim" : `Buyer message — ${m.subject || "?"}`,
-      sub: `${m.from || "?"} · reply from the mailbox stops the clock`,
+      tone: isClaim ? "bad" : "warn",
+      title: isClaim ? "A-to-Z claim — defend it"
+        : `Buyer message — ${m.subject || "?"}`,
+      sub: isClaim
+        ? `${m.from || "?"} · only a Seller Central response stops the ` +
+          "clock — unanswered claims auto-grant against the account"
+        : `${m.from || "?"} · reply from the mailbox stops the clock`,
       dueIso: m.sla_deadline,
-      action: el("button", {
-        class: "b sm line",
-        onclick: (ev) => {
-          const btn = ev.target;
-          busAct(`mark message handled`, (doc) => {
-            const fresh = (doc.messages || []).filter((x) =>
-              x.id !== m.id && x.requested_at &&
-              Date.now() - new Date(x.requested_at) < 2 * 864e5);
-            fresh.push({ id: m.id, handled: true,
-                         requested_at: new Date().toISOString() });
-            doc.messages = fresh;
-          }, null);
-          btn.replaceWith(el("span", { class: "st ok" }, "✓ sent"));
-        },
-      }, "✓ Mark handled"),
+      action: isClaim
+        ? el("span", { style: "display:inline-flex;gap:6px;align-items:center" },
+            el("a", {
+              class: "b sm pri", href: ATOZ_CLAIMS_URL,
+              target: "_blank", rel: "noopener",
+            }, "Respond ↗"),
+            markBtn("✓", "line",
+              "clear from this queue AFTER responding in Seller Central — " +
+              "this does not touch the claim itself"))
+        : markBtn("✓ Mark handled", "line"),
     });
   }
 
