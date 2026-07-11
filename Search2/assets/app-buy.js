@@ -308,6 +308,67 @@ function buyRowAction(p) {
 
 /* ---------- detail panel ---------- */
 
+/* The supplier pair behind the margin, with the human veto. Born from the
+   dash-cam ↔ phone-holder incident (similarity 0.79 passed vision): the
+   image + title + similarity sit next to the reject button so a misfit is
+   spottable and fixable in one place. */
+function matchSection(p) {
+  if (!p.ali_id) return null;
+  const sect = el("div", { class: "sect" },
+    el("div", { class: "sl" }, "Supplier match"));
+  const row = el("div", { style: "display:flex;gap:10px;align-items:flex-start" });
+  if (p.ali_image_url) {
+    row.append(el("img", {
+      src: p.ali_image_url, alt: "", loading: "lazy",
+      style: "width:64px;height:64px;object-fit:cover;border-radius:8px;" +
+             "border:1px solid var(--line);flex:none",
+    }));
+  }
+  const name = p.ali_title || `Ali ${p.ali_id}`;
+  const info = el("div", { style: "min-width:0;flex:1" },
+    el("div", { style: "font-size:12.5px;line-height:1.4" },
+      p.aliexpress_url
+        ? el("a", { href: p.aliexpress_url, target: "_blank", rel: "noopener" }, name)
+        : name),
+    el("div", { class: "hint", style: "margin-top:2px" }, [
+      p.match_similarity != null
+        ? `similarity ${(p.match_similarity * 100).toFixed(1)}%` : null,
+      // absent field = payload predates the fields (serve not restarted
+      // yet) — don't guess a verdict the pipeline never published
+      !("match_vision" in p) ? null
+        : p.match_vision === true ? "vision-confirmed"
+        : p.match_vision === false ? "vision-refuted"
+        : "best candidate",
+    ].filter(Boolean).join(" · ") || "match details publish on the next serve cycle"));
+  row.append(info);
+  sect.append(row);
+
+  if (busMatchRejectFor(p.asin)) {
+    sect.append(el("div", { class: "st warn",
+      style: "margin-top:8px;white-space:normal" },
+      "🕐 wrong-match sent — re-matches without this supplier next run"));
+    return sect;
+  }
+  const status = statusLine();
+  sect.append(el("div", { style: "margin-top:8px" },
+    el("button", {
+      class: "b sm danger",
+      title: "pushes this Ali item onto the never-again list and sends the " +
+             "product back through matching",
+      onclick: () => {
+        if (!confirm(`Reject this match? ${p.asin} drops off the winners ` +
+            "list and re-matches on the next run — the rejected AliExpress " +
+            "item is never re-selected.")) return;
+        busAct(`wrong match ${p.asin}`, (doc) => prunePush(doc, "matches", {
+          asin: p.asin, ali_id: String(p.ali_id), reject: true,
+          requested_at: new Date().toISOString(),
+        }), status, "Sent — re-matches without this supplier on the next run.");
+      },
+    }, "✗ Wrong match"),
+    status));
+  return sect;
+}
+
 function buyDetail(p) {
   const card = el("div", { class: "panel" });
   card.append(heroEl(p));
@@ -340,6 +401,9 @@ function buyDetail(p) {
     }, `Takealot offer: ${INTENT_LABEL[p.takealot.state] || p.takealot.state} →`));
   }
   card.append(chips);
+
+  const match = matchSection(p);
+  if (match) card.append(match);
 
   /* score breakdown */
   const c = p.score_components || {};

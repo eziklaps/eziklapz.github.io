@@ -426,6 +426,12 @@ function pendingBusEntries() {
     else if (l.requeue) push("listing", `Requeue ${l.asin} (${l.channel})`, l.requested_at, l.asin);
     else push("listing", `List ${l.asin} on ${l.channel}`, l.requested_at, l.asin);
   }
+  for (const m of c.matches || []) {
+    if (m.reject) {
+      push("match", `Wrong match: ${m.asin} ↔ Ali ${m.ali_id}`,
+        m.requested_at, m.asin);
+    }
+  }
   for (const s of c.shipments || []) {
     push("shipment", `Confirm shipment ${s.order_id}`, s.requested_at, s.order_id);
   }
@@ -500,6 +506,15 @@ function busOrderPhantoms() {
 
 function busOrderPhantomForAsin(asin) {
   return busOrderPhantoms().find((o) => o.asin === asin) || null;
+}
+
+/* A "Wrong match" verdict already riding the bus for this ASIN — the Buy
+   detail swaps the reject button for a waiting note so one misfit can't
+   be rejected twice. */
+function busMatchRejectFor(asin) {
+  return ((S.commands || {}).matches || []).find((m) =>
+    m.reject && m.asin === asin && m.requested_at
+    && Date.now() - new Date(m.requested_at).getTime() < 48 * 3600e3) || null;
 }
 
 /* Listing entries on the bus with no matching intent in the seller payload
