@@ -247,6 +247,48 @@ function sellTodosPanel(todos) {
   return p;
 }
 
+/* Why a parked intent is stuck + the move that unstalls it — inline in the
+   State cell, joined from the seller_todos queues. Nobody should have to
+   cross-reference three panels to learn what a state word means. */
+function intentReasonEl(it) {
+  const todos = (S.seller || {}).todos || {};
+  const wrap = (tone, ...kids) => el("div", {
+    class: `st ${tone}`, style: "font-size:11px;margin-top:3px;white-space:normal",
+  }, ...kids);
+  if (it.state === "blocked_exemption") {
+    const ex = (todos.exemptions || [])
+      .find((x) => (x.asins || []).includes(it.asin));
+    return wrap("warn",
+      `needs a GTIN exemption${ex ? ` — ${ex.product_type}` : ""} · apply on the form, then `,
+      el("a", {
+        onclick: () => setDesk("sell", {
+          sellTab: "amazon", focus: ex ? ex.product_type : it.asin }),
+      }, "Mark granted"));
+  }
+  if (it.state === "rejected") {
+    const r = (todos.restricted || []).find((x) => x.asin === it.asin);
+    if (r) {
+      const link = (r.links || [])[0];
+      return wrap("warn", `Amazon restricts it: ${r.reason} · `,
+        link
+          ? el("a", { href: link.url, target: "_blank", rel: "noopener" },
+              "apply for approval ↗")
+          : "approval needed",
+        " · the 24h poll auto-requeues once granted");
+    }
+    return wrap("mute", "see the note — Requeue retries it");
+  }
+  if (it.state === "fix_required") {
+    return wrap("hot",
+      "payload failed validation — the note names the problem; fix, then Requeue");
+  }
+  if (it.state === "needs_review") {
+    return wrap("bad",
+      "validation preview wants human eyes before this submits");
+  }
+  return null;
+}
+
 function intentTableEl(intents, channel, statusEl) {
   const table = el("table", { class: "grid" },
     el("tr", {},
@@ -257,7 +299,8 @@ function intentTableEl(intents, channel, statusEl) {
     table.append(el("tr", { "data-focus": it.asin || "" },
       el("td", { class: "t" },
         el("span", { class: "rowtitle", title: it.id }, it.title || it.asin || it.id)),
-      el("td", { class: "t" }, stateWord(it.state)),
+      el("td", { class: "t" }, stateWord(it.state),
+        PARKED.has(it.state) ? intentReasonEl(it) : null),
       el("td", {}, it.list_price != null ? fmtR(it.list_price) : "—"),
       channel === "takealot"
         ? el("td", {}, it.takealot_margin_percent != null
