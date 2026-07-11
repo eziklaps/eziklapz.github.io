@@ -45,7 +45,7 @@ async function fetchJson(name) {
    Reconnects with capped jittered backoff; a 25s "ping" keeps NAT paths
    open (auto-answered server-side without waking the hub). No-op when the
    live layer is off, so pages can call this unconditionally. */
-function liveConnect(onDirty) {
+function liveConnect(onDirty, onState) {
   if (!LIVE_BASE || typeof WebSocket === "undefined") return;
   let delay = 1000;
   const connect = () => {
@@ -53,6 +53,7 @@ function liveConnect(onDirty) {
     const ws = new WebSocket(LIVE_BASE.replace(/^http/, "ws") + "/api/live");
     ws.addEventListener("open", () => {
       delay = 1000;
+      if (onState) onState(true);
       pingTimer = setInterval(() => {
         try { ws.send("ping"); } catch (e) { /* mid-close race */ }
       }, 25_000);
@@ -64,6 +65,7 @@ function liveConnect(onDirty) {
     });
     ws.addEventListener("close", () => {
       clearInterval(pingTimer);
+      if (onState) onState(false);
       setTimeout(connect, delay + Math.random() * 1000);
       delay = Math.min(delay * 2, 60_000);
     });

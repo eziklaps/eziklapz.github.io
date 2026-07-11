@@ -28,7 +28,9 @@ function renderMachineDesk(root) {
   root.append(deskHead("Machine",
     `funnel: ${a.funnel_state || "none"}` +
     (a.run_id ? ` · run ${a.run_id}` : "") +
-    " · commands apply within ~30s · published " + fmtAgo(a.generated_at)));
+    " · commands apply within ~30s"));
+
+  root.append(connectionChips(a));
 
   /* auth banner */
   const auth = a.aliexpress_auth || {};
@@ -77,6 +79,27 @@ function renderMachineDesk(root) {
   root.append(el("div", {
     style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start",
   }, statusCountsPanel(counts, total), errorsPanel(a.errors)));
+}
+
+/* Connection honesty row: the publish heartbeat is the pipeline's pulse —
+   a live run pushes every ~10s and an idle serve at least hourly, so the
+   thresholds differ by funnel state. wsChip/S.net come from app.js. */
+function connectionChips(a) {
+  const running = a.funnel_state === "running";
+  const age = agoMinutes(a.generated_at);
+  const pubTone = running
+    ? (age <= 5 ? "ok" : "bad")
+    : (age <= STALE_PUBLISH_MIN ? "ok" : "bad");
+  const pubNote = running && pubTone === "bad"
+    ? " — run active but publishing is stuck" : "";
+  return el("div", { class: "connchips" },
+    pill(pubTone, dotEl(pubTone, true),
+      " publish heartbeat · ", agoSpan(a.generated_at), pubNote),
+    wsChip(),
+    S.net.failing
+      ? pill("bad", dotEl("bad", true), " data fetch FAILING — showing old data")
+      : pill("ok", dotEl("ok", true), " data fetch OK · ",
+          S.net.lastOkAt ? agoSpan(S.net.lastOkAt) : el("span", {}, "—")));
 }
 
 function runControlPanel(a) {

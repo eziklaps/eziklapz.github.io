@@ -31,6 +31,9 @@ const S = {
   buyTab: "amazon", buySearch: "", buySort: "score", buySel: null,
   sellTab: "amazon",
   stockOpen: false,
+  // connection honesty: failing = last refresh sweep lost every fetch;
+  // wsUp = live-push socket state (null until it first connects/is off)
+  net: { failing: false, lastOkAt: null, wsUp: null },
 };
 
 const CIPHERS = {};          // name -> last decrypted ciphertext
@@ -951,9 +954,82 @@ async function refreshAll({ firstUnlock = false } = {}) {
   if (firstUnlock && results.every((r) => r.status === "rejected")) {
     throw results[0].reason;
   }
+  // Connection honesty: a fully-failed sweep means the desks are painting
+  // old data — surface it instead of console.warn-ing into the void.
+  if (results.some((r) => r.status === "fulfilled")) {
+    S.net.failing = false;
+    S.net.lastOkAt = new Date().toISOString();
+  } else {
+    S.net.failing = true;
+  }
   const changed = results.some((r) => r.status === "fulfilled" && r.value);
   if (changed) renderApp();
   else tickAgo();
+  renderConnBar();
+}
+
+/* ---------- connection honesty banner ---------- */
+
+/* Idle serve force-republishes hourly (config.PUBLISH_FORCE_SECONDS), so a
+   healthy pipeline never lets generated_at age past ~65min. Beyond that the
+   serve loop itself is down or stuck — not merely quiet. */
+const STALE_PUBLISH_MIN = 75;
+
+function connState() {
+  if (S.net.failing) return "offline";
+  if (agoMinutes((S.admin || {}).generated_at) > STALE_PUBLISH_MIN) return "stale";
+  return "ok";
+}
+
+function renderConnBar() {
+  let bar = document.getElementById("connbar");
+  if (!bar) {
+    const top = document.getElementById("topbar");
+    if (!top) return;
+    bar = el("div", { id: "connbar" });
+    bar.hidden = true;
+    top.after(bar);
+  }
+  const state = connState();
+  bar.hidden = state === "ok";
+  if (state === "ok") return;
+  bar.className = `connbar ${state === "offline" ? "bad" : "warn"}`;
+  if (state === "offline") {
+    bar.replaceChildren(
+      el("span", {},
+        el("b", {}, "⚠ Offline — the data feed isn't reachable."),
+        " Showing data fetched ",
+        S.net.lastOkAt ? agoSpan(S.net.lastOkAt) : "before this page opened",
+        " · commands may not reach the bus."),
+      el("button", {
+        class: "b sm line",
+        onclick: () => refreshAll().catch(console.warn),
+      }, "Retry now"));
+  } else {
+    bar.replaceChildren(
+      el("span", {},
+        el("b", {}, "⚠ Pipeline quiet"),
+        " — last publish ", agoSpan((S.admin || {}).generated_at),
+        " (a healthy serve republishes at least hourly). ",
+        "The serve process may be down."),
+      el("button", {
+        class: "b sm line", onclick: () => setDesk("machine"),
+      }, "Open Machine"));
+  }
+}
+
+/* Live-push socket chip — Machine's connection row owns it; the state
+   callback swaps it in place so a socket flap never rebuilds the desk
+   (which would eat half-filled run-control inputs). */
+function wsChip() {
+  const up = S.net.wsUp;
+  const tone = up === true ? "ok" : up === false ? "warn" : "mute";
+  const label = up === true ? "live push connected"
+    : up === false ? "live push reconnecting — 60s polling covers"
+    : "live push off";
+  const chip = pill(tone, dotEl(tone, true), ` ${label}`);
+  chip.id = "wschip";
+  return chip;
 }
 
 /* ---------- boot ---------- */
@@ -982,11 +1058,17 @@ async function boot() {
     await adoptBusToken(pass);
     readCommandsSafe().then((doc) => { if (doc) renderTopbar(); });
     refreshTimer = setInterval(() => refreshAll().catch(console.warn), REFRESH_MS);
-    setInterval(tickAgo, 30_000);
+    // 30s tick keeps ago-labels honest AND lets the stale banner appear by
+    // time passing alone (a dead serve never triggers a repaint otherwise).
+    setInterval(() => { tickAgo(); renderConnBar(); }, 30_000);
     liveConnect((name) => {
       if (!(name in FILE_KEYS)) return;
       clearTimeout(liveDebounce);
       liveDebounce = setTimeout(() => refreshAll().catch(console.warn), 400);
+    }, (up) => {
+      S.net.wsUp = up;
+      const chip = document.getElementById("wschip");
+      if (chip) chip.replaceWith(wsChip());
     });
     renderApp();
     return true;

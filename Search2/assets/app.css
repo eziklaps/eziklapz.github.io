@@ -447,6 +447,21 @@ dialog.modal .x { float: right; font-size: 16px; color: var(--muted); cursor: po
 }
 .warnbar.bad { border-color: var(--bad-line); background: var(--hot-bg); color: var(--bad); }
 
+/* connection honesty: full-width bar between the topbar and the shell */
+.connbar {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 7px 16px; font-size: 12.5px; flex-wrap: wrap;
+}
+.connbar.warn {
+  background: var(--warn-bg); color: var(--warn-text);
+  border-bottom: 1px solid var(--warn-line);
+}
+.connbar.bad {
+  background: var(--hot-bg); color: var(--bad);
+  border-bottom: 1px solid var(--bad-line);
+}
+.connchips { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+
 /* dropzone */
 .drop {
   display: flex; align-items: center; gap: 10px; padding: 14px;
