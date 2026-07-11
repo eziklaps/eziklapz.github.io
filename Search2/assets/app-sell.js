@@ -40,6 +40,51 @@ function enabledPill(enabled, what) {
         "submissions inert — prepared only");
 }
 
+/* ---------- client-side joins (margin + stock live in other payloads) ---------- */
+
+/* Current pipeline margin for an ASIN, from the buyer payload — the same
+   client-side ASIN join the Stock desk uses. Null when the product isn't
+   on the winners list (the cell reads "—", never guessed). */
+function sellMarginFor(asin) {
+  const p = asin ? buyerByAsin()[asin] : null;
+  return p && p.margin_total != null
+    ? { total: p.margin_total, pct: p.margin_percent } : null;
+}
+
+/* Our own listings carry the pipeline SKU (S2-<ASIN>) on both channels. */
+function asinFromSku(sku) {
+  const m = /^S2-([A-Z0-9]{10})/.exec(sku || "");
+  return m ? m[1] : null;
+}
+
+/* Units on hand for a product key (ASIN, or the Takealot doc id for
+   discovery winners) from the stock-movements rollup in the admin payload.
+   Null = the stock log has never seen the product; 0 = seen and empty. */
+function stockOnHandFor(key) {
+  let units = null;
+  if (!key) return units;
+  for (const h of (((S.admin || {}).stock || {}).on_hand) || []) {
+    if (h.asin !== key) continue;
+    const locs = h.locations || { home: h.units || 0 };
+    units = (units ?? 0) + Object.values(locs).reduce((s, n) => s + (n || 0), 0);
+  }
+  return units;
+}
+
+function onHandCell(key) {
+  const units = stockOnHandFor(key);
+  if (units == null) return el("span", {
+    class: "hint", title: "the stock log has never seen this product" }, "—");
+  return el("span", { class: `st ${units > 0 ? "ok" : "warn"}` }, fmtNum(units));
+}
+
+function estMarginCell(asin) {
+  const m = sellMarginFor(asin);
+  return el("td", {
+    title: "pipeline estimate at today's prices — real P&L lands on Books as fees settle",
+  }, m ? `${fmtR(m.total)} · ${m.pct ?? "—"}%` : "—");
+}
+
 /* ---------- Amazon tab ---------- */
 
 function renderSellAmazon(root, az, todos) {
@@ -55,7 +100,7 @@ function renderSellAmazon(root, az, todos) {
   const azMerged = [...busListingPhantoms("amazon", az.intents),
                     ...(az.intents || [])];
   if (azMerged.length) {
-    p.append(intentTableEl(azMerged, "amazon", status, { withMargin: false }));
+    p.append(intentTableEl(azMerged, "amazon", status));
   } else {
     p.append(emptyLine("no Amazon listing intents — placed orders auto-create " +
       "them, or queue one by ASIN below"));
@@ -202,11 +247,11 @@ function sellTodosPanel(todos) {
   return p;
 }
 
-function intentTableEl(intents, channel, statusEl, { withMargin } = {}) {
+function intentTableEl(intents, channel, statusEl) {
   const table = el("table", { class: "grid" },
     el("tr", {},
       el("th", {}, "Product"), el("th", {}, "State"), el("th", {}, "Price"),
-      withMargin ? el("th", {}, "Margin") : null,
+      el("th", {}, "Margin"),
       el("th", {}, "When"), el("th", {}, "Last note"), el("th", {}, "")));
   for (const it of intents) {
     table.append(el("tr", { "data-focus": it.asin || "" },
@@ -214,9 +259,10 @@ function intentTableEl(intents, channel, statusEl, { withMargin } = {}) {
         el("span", { class: "rowtitle", title: it.id }, it.title || it.asin || it.id)),
       el("td", { class: "t" }, stateWord(it.state)),
       el("td", {}, it.list_price != null ? fmtR(it.list_price) : "—"),
-      withMargin
+      channel === "takealot"
         ? el("td", {}, it.takealot_margin_percent != null
-            ? `${it.takealot_margin_percent}%` : "—") : null,
+            ? `${it.takealot_margin_percent}%` : "—")
+        : estMarginCell(it.asin),
       el("td", { class: "t", style: "color:var(--muted);font-size:12px" }, fmtAgo(it.received_at)),
       el("td", { class: "t", style: "color:var(--ink2);font-size:12px" }, it.note ?? ""),
       el("td", { class: "r t" }, PARKED.has(it.state)
@@ -251,7 +297,8 @@ function sellSalesPanel(sales, label) {
     const shippable = label === "Amazon";
     const table = el("table", { class: "grid" },
       el("tr", {}, el("th", {}, "Order"), el("th", {}, "Product"),
-        el("th", {}, "Qty"), el("th", {}, "Price"), el("th", {}, "State"),
+        el("th", {}, "Qty"), el("th", {}, "Price"),
+        el("th", {}, "Est. margin"), el("th", {}, "State"),
         el("th", {}, "When"),
         shippable ? el("th", {}, "Fulfilment (MFN)") : null));
     for (const s of recent) {
@@ -260,6 +307,7 @@ function sellSalesPanel(sales, label) {
         el("td", { class: "t" }, el("span", { class: "rowtitle" }, s.title || s.sku || "—")),
         el("td", {}, fmtNum(s.quantity)),
         el("td", {}, fmtR(s.selling_price)),
+        estMarginCell(s.asin || asinFromSku(s.sku)),
         el("td", { class: "t" }, el("span", {
           class: `st ${s.state === "Shipped" ? "ok" : s.state === "Unshipped" ? "warn" : "mute"}`,
         }, s.state ?? "—")),
@@ -362,6 +410,7 @@ function renderSellTakealot(root, tk) {
     const table = el("table", { class: "grid" },
       el("tr", {}, el("th", {}, "Product"), el("th", {}, "Score"),
         el("th", {}, "Margin"), el("th", {}, "Their price"),
+        el("th", { title: "units in the stock log — Takealot's 3-day SLA needs local stock" }, "On hand"),
         el("th", {}, "Offers"), el("th", {}, "Barcode"), el("th", {}, "")));
     for (const o of tk.offerable) {
       table.append(el("tr", { "data-focus": o.id || "" },
@@ -371,6 +420,7 @@ function renderSellTakealot(root, tk) {
         el("td", {}, o.score != null ? String(Math.round(o.score)) : "—"),
         el("td", {}, marginCell(o)),
         el("td", {}, fmtR(o.takealot_price)),
+        el("td", {}, onHandCell(o.id)),
         el("td", { class: "t", style: "font-size:12px;color:var(--ink2)" },
           o.offer_count != null ? `${o.offer_count}${o.seller ? ` (${o.seller})` : ""}` : "—"),
         el("td", { class: "t mono", style: "font-size:11.5px" }, o.barcode || "—"),
@@ -394,6 +444,7 @@ function renderSellTakealot(root, tk) {
     const table = el("table", { class: "grid" },
       el("tr", {}, el("th", {}, "Product"), el("th", {}, "Score"),
         el("th", {}, "Margin"), el("th", {}, "Amazon"), el("th", {}, "Takealot"),
+        el("th", { title: "units in the stock log — Takealot's 3-day SLA needs local stock" }, "On hand"),
         el("th", {}, "Offers"), el("th", {}, "")));
     for (const m of tk.matched) {
       table.append(el("tr", { "data-focus": m.id || "" },
@@ -404,6 +455,7 @@ function renderSellTakealot(root, tk) {
         el("td", {}, marginCell(m)),
         el("td", {}, fmtR(m.amazon_price)),
         el("td", {}, fmtR(m.takealot_price)),
+        el("td", {}, onHandCell(m.id)),
         el("td", { class: "t", style: "font-size:12px;color:var(--ink2)" },
           m.offer_count != null ? `${m.offer_count}${m.seller ? ` (${m.seller})` : ""}` : "—"),
         el("td", { class: "r t" }, shelfActionEl(m, { plid: m.plid }, status))));
@@ -438,7 +490,7 @@ function renderSellTakealot(root, tk) {
   const tkMerged = [...busListingPhantoms("takealot", tk.intents),
                     ...(tk.intents || [])];
   if (tkMerged.length) {
-    p.append(intentTableEl(tkMerged, "takealot", status, { withMargin: true }));
+    p.append(intentTableEl(tkMerged, "takealot", status));
   } else {
     p.append(emptyLine("no Takealot listing intents — queue winners from the shelves above"));
   }
