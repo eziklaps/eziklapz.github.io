@@ -865,6 +865,8 @@ function renderRail() {
 }
 
 function lockDesk() {
+  // One stray tap used to wipe the passphrase and reload mid-work.
+  if (!confirm("Lock the desk? You'll need the passphrase to get back in.")) return;
   localStorage.removeItem(PASS_KEY);
   // The bus token is passphrase-derived — locking must drop it too, or the
   // desk stays actionable. Legacy mode keeps its hand-pasted GitHub PAT.
@@ -1040,6 +1042,11 @@ async function boot() {
   const input = document.getElementById("pass-input");
 
   async function attempt(pass, remember) {
+    // 600k PBKDF2 iterations take seconds — say so instead of playing dead.
+    const btn = document.querySelector("#gate-form button");
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Deriving keys… (a few seconds)";
     S.passphrase = pass;
     try {
       await refreshAll({ firstUnlock: true });
@@ -1049,6 +1056,9 @@ async function boot() {
       gateError.textContent = e.name === "OperationError"
         ? "Wrong passphrase." : `Could not load data: ${e.message}`;
       return false;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
     }
     if (remember) localStorage.setItem(PASS_KEY, pass);
     gate.hidden = true;

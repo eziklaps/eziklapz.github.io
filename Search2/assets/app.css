@@ -94,7 +94,9 @@ a:hover { text-decoration: underline; }
 code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; }
 .num { font-variant-numeric: tabular-nums; }
 
-#app { min-height: 100vh; display: flex; flex-direction: column; }
+/* dvh tracks the real visible height on iOS (100vh hides behind the
+   collapsing Safari bars and makes the layout jiggle); vh is the fallback */
+#app { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 
 /* ---------- top status bar ---------- */
 .topbar {
@@ -184,6 +186,19 @@ code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 
   .navitem { width: auto; gap: 8px; white-space: nowrap; }
   .desk { padding: 14px 12px 22px; }
   .topbar { padding: 6px 12px; }
+}
+
+/* touch ergonomics: fingers get ≥44px targets; desktop density untouched */
+@media (pointer: coarse) {
+  .b, .tab {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 44px; padding-top: 6px; padding-bottom: 6px;
+  }
+  .navitem { min-height: 44px; }
+  .swchip { display: inline-flex; align-items: center; min-height: 36px; }
+  /* 44px tap boxes, and ≥16px text stops iOS zoom-jumping into the field */
+  .in, select.in { min-height: 44px; font-size: 16px; }
+  dialog.modal .x { min-height: 44px; min-width: 44px; }
 }
 
 /* ---------- panels / cards ---------- */
