@@ -253,19 +253,27 @@ function gatePanel(bank) {
     dim("Orders today vs cap",
       `${gate.orders_today ?? 0} / ${knobs.max_orders_day ?? "—"}`,
       (gate.orders_today ?? 0) >= (knobs.max_orders_day ?? Infinity)),
-    dim("Balance evidence age vs max",
-      gate.age_days != null
-        ? `${gate.age_days}d / ${knobs.max_balance_age_days}d` : "—",
-      gate.age_days != null && gate.age_days > (knobs.max_balance_age_days ?? 7)));
+    // The binding freshness = last verifiable bank sighting (Xero poll /
+    // statement / confirm). Movement age is informational — quiet books
+    // are healthy books, the amber watch narrates it. Old payloads only
+    // carry age_days; fall back so the row never lies blank.
+    dim("Bank last seen vs max",
+      (gate.verified_age_days ?? gate.age_days) != null
+        ? `${gate.verified_age_days ?? gate.age_days}d / ${knobs.max_balance_age_days}d` : "—",
+      (gate.verified_age_days ?? gate.age_days) != null
+        && (gate.verified_age_days ?? gate.age_days) > (knobs.max_balance_age_days ?? 7)),
+    dim("Newest coded movement",
+      gate.movement_age_days != null ? `${gate.movement_age_days}d ago` : "—",
+      false));
 
-  /* Every reason carries its fix. The binding evidence age is the STALEST
-     account (gate takes max of ages), so Confirm pre-targets that one;
-     reconciling in Xero IS the feed, so that link is the other lever. */
+  /* Every reason carries its fix. Confirm pre-targets the stalest account
+     (oldest evidence gains the most from a fresh sighting); reconciling
+     in Xero IS the feed, so that link is the other lever. */
   const stalest = (bank.accounts || [])
     .filter((a) => a.balance != null)
     .sort((x, y) => (y.age_days ?? 9e9) - (x.age_days ?? 9e9))[0];
   const fixFor = (text) => {
-    if (/balance evidence|no balance/.test(text)) {
+    if (/balance evidence|no balance|bank last seen|no bank movement/.test(text)) {
       return [
         el("button", {
           class: "b sm pri",
@@ -306,7 +314,7 @@ function gatePanel(bank) {
     }, `⚠️ ${note}`,
       // Watch-stage balance aging gets the one-click fix too — cheaper to
       // confirm at amber than to unstick a red gate later.
-      ...(/balance evidence/.test(note) ? fixes.slice(0, 1) : [])));
+      ...(/balance evidence|bank last seen/.test(note) ? fixes.slice(0, 1) : [])));
   }
 
   /* knob editing — writes doc.affordability, the pipeline mirrors it */
