@@ -4,7 +4,10 @@
    always the safe half: nothing POSTs anywhere until the matching .env
    switch is on at the pipeline machine AND the remote switch isn't killed. */
 
-const GTIN_FORM_URL = "https://sellercentral.amazon.co.za/gtinx";
+// Amazon retired the standalone /gtinx form — exemptions are now applied
+// for INSIDE the Add-products flow (search the catalog → "I'm adding a
+// product not sold on Amazon" → brand "Generic" surfaces the exemption).
+const GTIN_FORM_URL = "https://sellercentral.amazon.co.za/product-search";
 const APPS_DASHBOARD_URL = "https://sellercentral.amazon.co.za/hz/myqdashboard";
 
 function renderSellDesk(root) {
@@ -25,7 +28,9 @@ function renderSellDesk(root) {
     onclick: () => { S.sellTab = id; renderDesk(); },
   }, label);
   root.append(el("div", { class: "tabs" },
-    tab("amazon", `Amazon (${azCount + (todos.restricted || []).length + (todos.exemptions || []).length})`),
+    // Tab counts = listing intents only; the parked approval queues live
+    // inside their own collapsed panel and don't inflate the numbers.
+    tab("amazon", `Amazon (${azCount})`),
     tab("takealot", `Takealot (${tkCount + (tk.offerable || []).length + (tk.matched || []).length})`)));
 
   if (S.sellTab === "takealot") renderSellTakealot(root, tk);
@@ -142,29 +147,56 @@ function sellTodosPanel(todos) {
   const restricted = todos.restricted || [];
   const compliance = todos.compliance || [];
   const status = statusLine();
-  const p = panelEl("Seller Central to-dos", {
-    soft: "— the pipeline prepares, only you can click approve",
+  const total = exemptions.length + restricted.length + compliance.length;
+  const p = panelEl("Parked approvals", {
+    soft: "— not being chased right now",
     right: el("a", { href: APPS_DASHBOARD_URL, target: "_blank", rel: "noopener" },
-      "all selling applications ↗"),
+      "selling applications ↗"),
   });
 
-  if (!exemptions.length && !restricted.length && !compliance.length) {
-    p.append(pill("ok", "nothing awaiting manual approval"));
+  if (!total) {
+    p.append(pill("ok", "nothing parked"), status);
+    return p;
+  }
+
+  // One calm line, collapsed by default: these queues wait on Seller
+  // Central approvals Andrew has chosen not to pursue for now, and the Buy
+  // desk's buy-ready filter already keeps the blocked products out of the
+  // sourcing view — no reason for this panel to shout.
+  const bits = [
+    restricted.length
+      ? `${restricted.length} restricted ASIN${restricted.length > 1 ? "s" : ""}` : null,
+    exemptions.length
+      ? `${exemptions.length} GTIN categor${exemptions.length > 1 ? "ies" : "y"}` : null,
+    compliance.length
+      ? `${compliance.length} ZA compliance` : null,
+  ].filter(Boolean).join(" · ");
+  p.append(el("div", { class: "hint" },
+    `${bits} — parked until you take up the approval process; the Buy desk ` +
+    "hides these products meanwhile. ",
+    el("a", {
+      style: "cursor:pointer",
+      onclick: () => { S.sellTodosOpen = !S.sellTodosOpen; renderDesk(); },
+    }, S.sellTodosOpen ? "Hide ▴" : "Details ▾")));
+  if (!S.sellTodosOpen) {
+    p.append(status);
+    return p;
   }
 
   for (const ex of exemptions) {
     p.append(el("div", {
-      class: "warnbar", style: "margin-bottom:6px",
+      class: "note", style: "margin:8px 0 6px;display:flex;gap:8px;" +
+        "align-items:center;flex-wrap:wrap",
       "data-focus": ex.product_type,
     },
       el("span", { style: "font-weight:600" },
-        `GTIN exemption needed: ${ex.product_type} — ${ex.count} intent${ex.count > 1 ? "s" : ""}`),
+        `GTIN exemption: ${ex.product_type} — ${ex.count} intent${ex.count > 1 ? "s" : ""}`),
       el("span", { class: "mono", style: "color:var(--ink2);font-size:12px" },
         (ex.asins || []).join(", ")),
       el("span", { style: "flex:1" }),
       el("a", {
         class: "b sm line", href: GTIN_FORM_URL, target: "_blank", rel: "noopener",
-      }, "Apply for exemption ↗"),
+      }, "Add products flow ↗"),
       el("button", {
         class: "b sm line",
         onclick: () => busAct(`grant ${ex.product_type}`, (doc) => prunePush(doc, "listings", {
@@ -175,9 +207,11 @@ function sellTodosPanel(todos) {
   }
   if (exemptions.length) {
     p.append(el("div", { class: "hint", style: "margin:6px 0 10px" },
-      "Brand “Generic” + the category · needs 2–9 photos of the PHYSICAL " +
-      "product with no branding (supplier photos fail) · ~48h review. Mark " +
-      "granted re-prepares the blocked intents on the next listings pass."));
+      "The old /gtinx form is retired — apply inside Add products: search " +
+      "the catalog, choose “I'm adding a product not sold on Amazon”, brand " +
+      "“Generic”, and the exemption path appears. 2–9 photos of the " +
+      "PHYSICAL product with no branding (supplier photos fail) · ~48h " +
+      "review · Mark granted re-prepares the blocked intents."));
   }
 
   if (restricted.length) {
@@ -258,8 +292,9 @@ function intentReasonEl(it) {
   if (it.state === "blocked_exemption") {
     const ex = (todos.exemptions || [])
       .find((x) => (x.asins || []).includes(it.asin));
-    return wrap("warn",
-      `needs a GTIN exemption${ex ? ` — ${ex.product_type}` : ""} · apply on the form, then `,
+    return wrap("mute",
+      `parked: GTIN exemption${ex ? ` — ${ex.product_type}` : ""} · apply ` +
+      "inside Add products, then ",
       el("a", {
         onclick: () => setDesk("sell", {
           sellTab: "amazon", focus: ex ? ex.product_type : it.asin }),

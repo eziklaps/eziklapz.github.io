@@ -599,7 +599,8 @@ function sweepPanel(sweep) {
    prepare but never click through — per-productType GTIN exemptions and
    per-ASIN "Apply to sell" links (captured by the restrictions gate, which
    re-polls every 24h and unblocks granted ones on its own). */
-const GTIN_FORM_URL = "https://sellercentral.amazon.co.za/gtinx";
+// /gtinx is retired — the exemption is applied for inside Add products.
+const GTIN_FORM_URL = "https://sellercentral.amazon.co.za/product-search";
 const APPS_DASHBOARD_URL = "https://sellercentral.amazon.co.za/hz/myqdashboard";
 
 function todosPanel(data) {

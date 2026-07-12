@@ -16,9 +16,21 @@ const ORDERED_RANK = { placed: 0, placing: 1, verified: 2, pending: 3,
 function renderBuyDesk(root) {
   const products = (S.buyer || {}).products || [];
   const kw = (S.buyer || {}).keywords || {};
+  const bf = (S.buyer || {}).buy_filter || {};
+  // The desk's default view = buy-ready only: net margin (after the
+  // inbound-courier allocation) clears the floor AND no listing block.
+  // Pre-restart payloads carry no buy_ready field — filtering on those
+  // would hide every row, so the filter only arms once the field exists.
+  const filterable = products.some((p) => "buy_ready" in p);
+  const shown = (list) => (filterable && !S.buyShowAll)
+    ? list.filter((p) => p.buy_ready) : list;
   const amazon = products.filter((p) => (p.channel || "amazon") === "amazon");
   const takealot = products.filter((p) => p.channel === "takealot");
   const ordered = products.filter((p) => p.order);
+  const hidden = filterable
+    ? (amazon.length - shown(amazon).length)
+      + (takealot.length - shown(takealot).length)
+    : 0;
   // Committed on the bus, not yet in any payload — optimistic rows so a
   // fresh ORDER shows up here immediately instead of after the next sync.
   const phantoms = busOrderPhantoms();
@@ -27,8 +39,11 @@ function renderBuyDesk(root) {
     .map((m) => `${m} ${kw[m].pending ?? 0}`).join(" / ");
   root.append(deskHead("Buy",
     `${products.length} winners · intake pending: ${kwBits || "—"} · margins ` +
-    "include SARS duties, import VAT & channel fees · updated " +
-    fmtAgo((S.buyer || {}).generated_at)));
+    "include SARS duties, import VAT & channel fees" +
+    (filterable
+      ? ` · net deducts ~${fmtR(bf.inbound_unit_cost ?? 10)}/unit inbound courier`
+      : "") +
+    " · updated " + fmtAgo((S.buyer || {}).generated_at)));
 
   /* tabs + search + sort */
   const tab = (id, label) => el("button", {
@@ -49,10 +64,22 @@ function renderBuyDesk(root) {
     el("option", { value: "marginPct" }, "Sort: Margin %"),
     el("option", { value: "demand" }, "Sort: Demand"));
   sort.value = S.buySort;
+  // "buy-ready only" is the default; the toggle keeps hidden rows one tap
+  // away so the filter is auditable, never a black box.
+  const filterChip = filterable ? el("button", {
+    class: `tab${S.buyShowAll ? " active" : ""}`,
+    title: `buy-ready = net margin ≥ ${fmtR(bf.net_floor ?? 10)} after ` +
+           `~${fmtR(bf.inbound_unit_cost ?? 10)}/unit inbound courier, and ` +
+           "no restriction / GTIN-exemption / compliance block",
+    onclick: () => { S.buyShowAll = !S.buyShowAll; renderDesk(); },
+  }, S.buyShowAll
+    ? "✓ showing all — tap for buy-ready only"
+    : `${hidden} hidden (blocked or < ${fmtR(bf.net_floor ?? 10)} net)`) : null;
   root.append(el("div", { class: "tabs" },
-    tab("amazon", `Amazon (${amazon.length})`),
-    tab("takealot", `Takealot (${takealot.length})`),
+    tab("amazon", `Amazon (${shown(amazon).length})`),
+    tab("takealot", `Takealot (${shown(takealot).length})`),
     tab("ordered", `Ordered (${ordered.length + phantoms.length})`),
+    filterChip,
     el("div", { style: "flex:1" }),
     search, sort));
 
@@ -61,15 +88,16 @@ function renderBuyDesk(root) {
   root.append(el("div", { class: "buygrid" }, listWrap, detailWrap));
 
   function currentList() {
+    // Ordered stays unfiltered — money already moved; hiding it would lie.
     let list = S.buyTab === "ordered" ? ordered
-      : S.buyTab === "takealot" ? takealot : amazon;
+      : S.buyTab === "takealot" ? shown(takealot) : shown(amazon);
     if (S.buyTab === "ordered") {
       list = [...list].sort((x, y) =>
         (ORDERED_RANK[x.order.state] ?? 9) - (ORDERED_RANK[y.order.state] ?? 9));
     } else {
       const key = {
         score: (p) => p.opportunity_score || 0,
-        marginR: (p) => p.margin_total || 0,
+        marginR: (p) => p.net_margin ?? p.margin_total ?? 0,
         marginPct: (p) => p.margin_percent || 0,
         demand: (p) => p.est_units_month || 0,
       }[S.buySort] || ((p) => p.opportunity_score || 0);
@@ -84,10 +112,14 @@ function renderBuyDesk(root) {
     const list = currentList();
     const sel = list.find((p) => p.asin === S.buySel) || list[0] || null;
     listWrap.replaceChildren();
+    const baseLen = (S.buyTab === "takealot" ? takealot : amazon).length;
     if (!list.length && !(S.buyTab === "ordered" && phantoms.length)) {
       listWrap.append(el("div", { class: "empty", style: "padding:14px" },
         S.buyTab === "ordered"
           ? "Nothing ordered yet — every row has an Order button."
+          : baseLen > 0
+          ? `All ${baseLen} winners here are hidden — blocked or under the ` +
+            "net floor. The chip above shows them."
           : S.buyTab === "takealot"
           ? "No Takealot-discovered winners yet — run the pull-takealot stage on Machine."
           : "No winners yet — the pipeline is still hunting."));
@@ -229,10 +261,21 @@ function scoreTooltipText(p) {
 }
 
 function marginCell(p) {
-  return el("span", { class: "num" },
-    el("b", { style: "color:var(--ok-text)" }, fmtR(p.margin_total)),
+  // Net (after the inbound-courier allocation) leads once the payload
+  // carries it; gross stays a hover away. Older payloads show gross alone.
+  const bf = (S.buyer || {}).buy_filter || {};
+  const net = p.net_margin != null;
+  return el("span", {
+    class: "num",
+    title: net
+      ? `net of ~${fmtR(bf.inbound_unit_cost ?? 10)}/unit inbound courier · ` +
+        `gross ${fmtR(p.margin_total)}`
+      : "",
+  },
+    el("b", { style: "color:var(--ok-text)" },
+      fmtR(net ? p.net_margin : p.margin_total)),
     el("span", { style: "color:var(--muted)" },
-      ` · ${p.margin_percent ?? "—"}%`));
+      `${net ? " net" : ""} · ${p.margin_percent ?? "—"}%`));
 }
 
 function demandCell(p) {
@@ -374,11 +417,36 @@ function buyDetail(p) {
   card.append(heroEl(p));
   card.append(el("h3", {}, p.title));
 
+  const bf = (S.buyer || {}).buy_filter || {};
   const chips = el("div", { class: "chiprow" },
-    pill("ok", `${fmtR(p.margin_total)} · ${p.margin_percent ?? "—"}%`),
+    p.net_margin != null
+      ? el("span", {
+          class: "pill ok",
+          title: `net of ~${fmtR(bf.inbound_unit_cost ?? 10)}/unit inbound ` +
+                 `courier · gross ${fmtR(p.margin_total)}`,
+        }, `${fmtR(p.net_margin)} net · ${p.margin_percent ?? "—"}%`)
+      : pill("ok", `${fmtR(p.margin_total)} · ${p.margin_percent ?? "—"}%`),
     p.opportunity_score != null
       ? el("span", { class: "pill acc", title: scoreTooltipText(p) },
           `⚡ ${Math.round(p.opportunity_score)}`) : null);
+  const BLOCK_LABEL = {
+    restricted: "🔒 Amazon approval needed",
+    compliance: "⛔ ZA compliance (ICASA/NRCS)",
+    gtin_exemption: "🔒 GTIN exemption needed",
+  };
+  for (const b of p.listing_blocks || []) {
+    chips.append(el("span", {
+      class: "pill warn", style: "cursor:pointer",
+      title: "not immediately listable — details on the Sell desk",
+      onclick: () => setDesk("sell", { sellTab: "amazon", focus: p.asin }),
+    }, BLOCK_LABEL[b] || b));
+  }
+  if (p.buy_ready === false && !(p.listing_blocks || []).length) {
+    chips.append(el("span", {
+      class: "pill mute",
+      title: `net margin under the ${fmtR(bf.net_floor ?? 10)} floor`,
+    }, "thin margin"));
+  }
   for (const flag of (p.trend_flags || "").split(" | ").filter(Boolean)) {
     chips.append(el("span", { class: "tag" }, FLAG_LABELS[flag] || flag));
   }
@@ -700,8 +768,9 @@ function openOrderModal(p) {
   typedCommitModal({
     title: "Order from AliExpress",
     product: p.title,
-    lines: [`item ${p.ali_id} · SKU ${p.sku_id} · ~${fmtR(unitCost)}/unit` +
-            ` · margin ${fmtR(p.margin_total)} (${p.margin_percent ?? "—"}%) at ` +
+    lines: [`item ${p.ali_id} · SKU ${p.sku_id} · ~${fmtR(unitCost)}/unit · ` +
+            (p.net_margin != null ? `net ${fmtR(p.net_margin)} / ` : "") +
+            `margin ${fmtR(p.margin_total)} (${p.margin_percent ?? "—"}%) at ` +
             `${p.channel === "takealot" ? "Takealot" : "Amazon"} price`],
     warn: orderGateWarn(),
     word: "ORDER",

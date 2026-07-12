@@ -343,8 +343,18 @@ table.grid tr.sel.click:hover td { background: var(--acc-bg); }
 /* ---------- Buy desk ---------- */
 .buygrid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
 @media (max-width: 1080px) { .buygrid { grid-template-columns: 1fr; } }
-.detail { position: sticky; top: 70px; }
-@media (max-width: 1080px) { .detail { position: static; } }
+/* The card scrolls inside itself — reading a long product card never
+   drags the master list along. Mobile stacks the panels, so the cap and
+   inner scrollbar lift there. */
+.detail {
+  position: sticky; top: 70px;
+  max-height: calc(100dvh - 84px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 1080px) {
+  .detail { position: static; max-height: none; overflow-y: visible; }
+}
 .detail .hero {
   width: 100%; aspect-ratio: 2.2 / 1; border-radius: 8px; border: 1px solid var(--line);
   background: #fff; display: grid; place-items: center; overflow: hidden;

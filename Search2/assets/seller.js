@@ -249,7 +249,8 @@ function intentTable(intents, channel, statusEl, { withMargin = false } = {}) {
 
 /* ---- Amazon tab ---- */
 
-const GTIN_FORM_URL = "https://sellercentral.amazon.co.za/gtinx";
+// /gtinx is retired — the exemption is applied for inside Add products.
+const GTIN_FORM_URL = "https://sellercentral.amazon.co.za/product-search";
 const APPS_DASHBOARD_URL = "https://sellercentral.amazon.co.za/hz/myqdashboard";
 
 /* Seller Central to-dos: the two manual approval queues the pipeline can

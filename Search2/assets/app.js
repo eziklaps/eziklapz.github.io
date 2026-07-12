@@ -29,7 +29,9 @@ const S = {
   passphrase: null,
   // per-desk UI state survives re-renders
   buyTab: "amazon", buySearch: "", buySort: "score", buySel: null,
+  buyShowAll: false,
   sellTab: "amazon",
+  sellTodosOpen: false,
   stockOpen: false,
   // connection honesty: failing = last refresh sweep lost every fetch;
   // wsUp = live-push socket state (null until it first connects/is off)
@@ -685,28 +687,26 @@ function needsYouItems() {
     });
   }
 
+  // Parked approval queues (GTIN exemptions + compliance blocks) fold into
+  // ONE quiet line — they wait on Seller Central applications that aren't
+  // being pursued right now, and Buy already hides the blocked products.
+  // Today only nags about things that move money this week.
   const todos = a.seller_todos || {};
-  for (const ex of todos.exemptions || []) {
+  const exN = (todos.exemptions || []).length;
+  const blockedN = (todos.compliance || [])
+    .filter((c) => c.risk === "blocked").length;
+  if (exN + blockedN) {
     items.push({
-      tone: "warn",
-      title: `GTIN exemption needed — ${ex.product_type}`,
-      sub: `${ex.count} intent${ex.count > 1 ? "s" : ""} blocked · ${(ex.asins || []).join(", ")} · needs 2–9 photos of the physical product`,
-      dueLabel: "~48h review",
+      tone: "mute",
+      title: "Parked approvals",
+      sub: [
+        exN ? `${exN} GTIN categor${exN > 1 ? "ies" : "y"}` : null,
+        blockedN ? `${blockedN} compliance-blocked` : null,
+      ].filter(Boolean).join(" · ") +
+        " — hidden from Buy · details on Sell whenever you take them up",
       action: el("button", {
         class: "b sm line",
-        onclick: () => setDesk("sell", { sellTab: "amazon", focus: ex.product_type }),
-      }, "Open on Sell"),
-    });
-  }
-  const blocked = (todos.compliance || []).filter((c) => c.risk === "blocked");
-  if (blocked.length) {
-    items.push({
-      tone: "warn",
-      title: `ZA compliance — ${blocked.length} blocked ASIN${blocked.length > 1 ? "s" : ""}`,
-      sub: "regulator approval legally required (ICASA/NRCS) — zero-scored until cleared",
-      action: el("button", {
-        class: "b sm line",
-        onclick: () => setDesk("sell", { sellTab: "amazon", focus: blocked[0].asin }),
+        onclick: () => setDesk("sell", { sellTab: "amazon" }),
       }, "Open on Sell"),
     });
   }
@@ -837,11 +837,13 @@ function railBadges() {
   const winners = ((S.buyer || {}).products || []).length;
   const stock = typeof renderStockBadge === "function" ? renderStockBadge() : 0;
   const seller = S.seller || {};
+  // Badge = intents a click can actually fix today. Approval-parked work
+  // (blocked_exemption / rejected-restricted / the todo queues) sits
+  // quietly on the desk instead of inflating the rail.
+  const actionable = new Set(["fix_required", "needs_review"]);
   const sellCount =
-    (((seller.amazon || {}).intents) || []).filter((i) => PARKED.has(i.state)).length
-    + (((seller.takealot || {}).intents) || []).filter((i) => PARKED.has(i.state)).length
-    + (((a.seller_todos || {}).exemptions) || []).length
-    + (((a.seller_todos || {}).restricted) || []).length;
+    (((seller.amazon || {}).intents) || []).filter((i) => actionable.has(i.state)).length
+    + (((seller.takealot || {}).intents) || []).filter((i) => actionable.has(i.state)).length;
   const machine = (a.errors || []).length
     + (["expired", "missing"].includes((a.aliexpress_auth || {}).status) ? 1 : 0);
   const books = (((a.accounting || {}).documents) || [])
