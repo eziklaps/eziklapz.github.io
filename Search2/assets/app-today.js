@@ -271,8 +271,13 @@ function killSwitchPanel() {
   const p = panelEl("Kill switches", {});
   const status = statusLine();
   for (const s of switchStates()) {
-    const label = { ordering: "Ordering", listing: "Amazon listings",
-                    takealot: "Takealot offers" }[s.key];
+    // SELL is one row for two bus keys (Amazon listings + Takealot offers)
+    // — killing or arming it flips both in a single commit.
+    const label = s.label === "ORDERS"
+      ? "Ordering" : "Selling (Amazon + Takealot)";
+    const setAll = (doc, enabled) => {
+      for (const key of s.keys) doc[key] = { ...(doc[key] || {}), enabled };
+    };
     p.append(el("div", { class: "switchrow" },
       el("span", {}, label),
       el("span", { style: "display:flex;gap:8px;align-items:center" },
@@ -282,16 +287,16 @@ function killSwitchPanel() {
         s.remote
           ? el("button", {
               class: "b xs danger",
-              onclick: () => busAct(`KILL ${label}`, (doc) => {
-                doc[s.key] = { ...(doc[s.key] || {}), enabled: false };
-              }, status, `Kill switch tripped — ${label} stops within ~30s.`),
+              onclick: () => busAct(`KILL ${label}`,
+                (doc) => setAll(doc, false),
+                status, `Kill switch tripped — ${label} stops within ~30s.`),
             }, "Kill")
           : el("button", {
               class: "b xs line",
-              onclick: () => busAct(`re-enable ${label}`, (doc) => {
-                doc[s.key] = { ...(doc[s.key] || {}), enabled: true };
-              }, status,
-              `${label} enabled remotely — still needs the .env switch on the pipeline machine.`),
+              onclick: () => busAct(`re-enable ${label}`,
+                (doc) => setAll(doc, true),
+                status,
+                `${label} enabled remotely — still needs the .env switch on the pipeline machine.`),
             }, "Arm"))));
   }
   p.append(el("div", { class: "hint", style: "margin-top:6px" },

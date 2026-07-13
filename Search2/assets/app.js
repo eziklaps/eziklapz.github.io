@@ -538,8 +538,11 @@ function busListingPhantoms(channel, intents) {
   }));
 }
 
-/* The three double switches: env half from the payloads, remote half from
-   the commands doc (absence = enabled). armed = both halves on. */
+/* The double switches: env half from the payloads, remote half from the
+   commands doc (absence = enabled). armed = every half on. SELL is one
+   switch in the UI but two underneath (Amazon listings + Takealot offers —
+   separate .env vars and bus keys); the chip arms only when both channels
+   are fully on, and killing it trips both. */
 function switchStates() {
   const c = S.commands || {};
   const remote = (key) => (c[key] || {}).enabled !== false;
@@ -547,17 +550,28 @@ function switchStates() {
   const envListing = S.seller ? !!(S.seller.amazon || {}).enabled : null;
   const envTakealot = S.seller ? !!(S.seller.takealot || {}).enabled : null;
   const known = !!S.commands;
+  const half = (env, rem) =>
+    `.env ${env === null ? "?" : env ? "on" : "off"} · remote `
+    + (known ? (rem ? "on" : "KILLED") : "unknown (token needed)");
+  const bothEnv = envListing === null && envTakealot === null
+    ? null : envListing === true && envTakealot === true;
   return [
-    { key: "ordering", label: "ORDERS", env: envOrdering, remote: remote("ordering"), known },
-    { key: "listing", label: "LISTINGS", env: envListing, remote: remote("listing"), known },
-    { key: "takealot", label: "OFFERS", env: envTakealot, remote: remote("takealot"), known },
-  ].map((s) => ({
-    ...s,
-    armed: s.env === true && s.remote,
-    title: `${s.label.toLowerCase()}: .env ${s.env === null ? "?" : s.env ? "on" : "off"}`
-      + ` · remote ${s.known ? (s.remote ? "on" : "KILLED") : "unknown (token needed)"}`
-      + " — both halves must be on for anything to post",
-  }));
+    {
+      keys: ["ordering"], label: "ORDERS",
+      env: envOrdering, remote: remote("ordering"), known,
+      armed: envOrdering === true && remote("ordering"),
+      title: `ordering: ${half(envOrdering, remote("ordering"))}`
+        + " — both halves must be on for anything to post",
+    },
+    {
+      keys: ["listing", "takealot"], label: "SELL",
+      env: bothEnv, remote: remote("listing") && remote("takealot"), known,
+      armed: bothEnv === true && remote("listing") && remote("takealot"),
+      title: `Amazon listings: ${half(envListing, remote("listing"))}`
+        + ` · Takealot offers: ${half(envTakealot, remote("takealot"))}`
+        + " — one switch, both channels: every half must be on to post",
+    },
+  ];
 }
 
 /* ---------- cross-payload lookups ---------- */
