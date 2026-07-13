@@ -953,6 +953,22 @@ function renderApp() {
 const FILE_KEYS = { "admin.enc": "admin", "buyer.enc": "buyer", "seller.enc": "seller" };
 
 async function loadOne(name) {
+  // API-first (plaintext + ETag, no PBKDF2): needs the derived bearer, so
+  // the very first unlock always takes the blob path below — which is also
+  // what validates the passphrase (GCM auth failure = wrong passphrase).
+  const api = await fetchDeskPayload(name);
+  if (api.status === "changed") {
+    S[FILE_KEYS[name]] = api.data;
+    CIPHERS[name] = null; // blob dedupe stamp is meaningless across sources
+    return true;
+  }
+  if (api.status === "unchanged") {
+    // 304: keep the payload, but let the build stamp age honestly so the
+    // staleness banner doesn't cry wolf on a quiet-but-healthy pipeline.
+    const held = S[FILE_KEYS[name]];
+    if (held && api.generatedAt) held.generated_at = api.generatedAt;
+    return false;
+  }
   const envelope = await fetchJson(name);
   if (CIPHERS[name] && envelope.ciphertext === CIPHERS[name]) return false;
   const data = await decryptEnvelope(envelope, S.passphrase); // throws on wrong pass
@@ -1097,6 +1113,12 @@ async function boot() {
       const chip = document.getElementById("wschip");
       if (chip) chip.replaceWith(wsChip());
     });
+    // Desk-API dirty hints ride the same debounce; harmless double signal
+    // while the publish loop still runs (Phase 3 retires that side).
+    sseConnect(() => {
+      clearTimeout(liveDebounce);
+      liveDebounce = setTimeout(() => refreshAll().catch(console.warn), 400);
+    }, null);
     renderApp();
     return true;
   }

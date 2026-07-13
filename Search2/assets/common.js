@@ -18,6 +18,18 @@ const S2_LIVE_BASE = "https://search2-live.eziklapz.workers.dev"; // → the dom
 const LIVE_BASE =
   new URLSearchParams(location.search).get("liveBase") || S2_LIVE_BASE;
 
+/* ---- Desk API (webapi/ on the VPS, architecture v2) ----
+   When S2_API_BASE points at the deployed search2-api service (via its
+   Cloudflare Tunnel hostname — deploy/API_V2.md), the app fetches desks as
+   plaintext JSON with the derived bearer (no client-side PBKDF2/decrypt,
+   no publish staleness) and listens for SSE dirty hints. Empty = all of it
+   is inert and the blob path below carries everything, exactly as before.
+   ?apiBase=http://127.0.0.1:8100 overrides for local testing against
+   `python runtime.py api`. */
+const S2_API_BASE = "https://api.andrewwalsh.co.za"; // Tunnel → search2-api on the VPS
+const API_BASE =
+  new URLSearchParams(location.search).get("apiBase") || S2_API_BASE;
+
 /* "no-cache" (not "no-store") on the CDN path: raw.githubusercontent serves
    max-age=300 with a strong ETag through a Fastly edge in Cape Town, so a
    revalidation is a cheap 304 from the edge. A ?t= cache-buster would force
@@ -167,6 +179,95 @@ async function adoptBusToken(passphrase) {
   } catch (e) {
     return false;  // WebCrypto/storage unavailable — the paste prompt still works
   }
+}
+
+/* ---- Desk API fetch (API-first, blob fallback) ----
+   fetchDeskPayload(name) speaks the webapi/ contract: 200 = fresh payload,
+   304 (via the remembered ETag) = unchanged content — but the
+   X-S2-Generated-At header still carries the current build stamp, so the
+   staleness banner keeps aging honestly without a repaint. Any failure
+   returns "unavailable" and the caller's envelope+decrypt path covers, so
+   a down API can never blank a desk. A 401 marks the API off for this page
+   load (the bearer derives from the same passphrase — re-deriving the same
+   value would just 401 again) WITHOUT touching the stored bus token: the
+   Worker may still accept it for commands. */
+
+const API_DESK_KEYS = { "admin.enc": "admin", "buyer.enc": "buyer", "seller.enc": "seller" };
+const _apiEtags = {};
+let _apiAuthFailed = false;
+
+async function fetchDeskPayload(name) {
+  const desk = API_DESK_KEYS[name];
+  const token = localStorage.getItem(PAT_KEY);
+  if (!API_BASE || !desk || !token || _apiAuthFailed) {
+    return { status: "unavailable" };
+  }
+  const headers = { Authorization: `Bearer ${token}` };
+  if (_apiEtags[name]) headers["If-None-Match"] = _apiEtags[name];
+  let resp;
+  try {
+    resp = await fetch(`${API_BASE}/api/desk/${desk}`,
+                       { headers, cache: "no-store" });
+  } catch (e) {
+    return { status: "unavailable" };
+  }
+  if (resp.status === 304) {
+    return { status: "unchanged",
+             generatedAt: resp.headers.get("X-S2-Generated-At") };
+  }
+  if (resp.status === 401 || resp.status === 403) {
+    _apiAuthFailed = true;
+    console.warn("Desk API rejected the derived bearer — using the blob path.");
+    return { status: "unavailable" };
+  }
+  if (!resp.ok) return { status: "unavailable" };
+  let data;
+  try {
+    data = await resp.json();
+  } catch (e) {
+    return { status: "unavailable" };
+  }
+  _apiEtags[name] = resp.headers.get("ETag");
+  return { status: "changed", data };
+}
+
+/* SSE dirty hints from the desk API. EventSource cannot send an
+   Authorization header, so this reads the stream through fetch instead;
+   reconnects with the same capped backoff shape as liveConnect. No-op
+   while the API is off or the bearer isn't derived yet — pages can call
+   it unconditionally, exactly like liveConnect. */
+function sseConnect(onDirty, onState) {
+  if (!API_BASE || typeof ReadableStream === "undefined") return;
+  let delay = 1000;
+  const connect = async () => {
+    const token = localStorage.getItem(PAT_KEY);
+    if (!token || _apiAuthFailed) { setTimeout(connect, 5000); return; }
+    try {
+      const resp = await fetch(`${API_BASE}/api/events`, {
+        headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+      if (!resp.ok || !resp.body) throw new Error(`events ${resp.status}`);
+      if (onState) onState(true);
+      delay = 1000;
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          if (/^event: dirty$/m.test(frame)) onDirty();
+        }
+      }
+    } catch (e) { /* stream dropped — reconnect below */ }
+    if (onState) onState(false);
+    setTimeout(connect, delay + Math.random() * 1000);
+    delay = Math.min(delay * 2, 60_000);
+  };
+  connect();
 }
 
 function fmtR(value) {
