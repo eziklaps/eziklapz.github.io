@@ -318,16 +318,20 @@ mutateCommands = async (mutate, message) => {
    spendFor(qty)? — a node with the money math, re-built when qty changes } */
 function typedCommitModal(spec) {
   withToken(() => {
-    const qtySelect = el("select", { class: "in" },
-      ...[1, 2, 3, 4, 5].map((n) => el("option", {
-        value: n, ...(n === (spec.qtyDefault || 1) ? { selected: "" } : {}),
-      }, `${n}`)));
+    const qtySelect = el("input", {
+      type: "number", class: "in", min: "1", max: "999", step: "1",
+      style: "width:80px", value: String(spec.qtyDefault || 1),
+    });
+    const qtyValue = () => {
+      const n = Math.round(Number(qtySelect.value));
+      return Number.isFinite(n) && n >= 1 ? Math.min(n, 999) : 1;
+    };
     const spendWrap = spec.spendFor ? el("div", {}) : null;
     const syncSpend = () => {
       if (!spendWrap) return;
-      spendWrap.replaceChildren(spec.spendFor(Number(qtySelect.value)) || "");
+      spendWrap.replaceChildren(spec.spendFor(qtyValue()) || "");
     };
-    qtySelect.addEventListener("change", syncSpend);
+    qtySelect.addEventListener("input", syncSpend);
     syncSpend();
     const confirmInput = el("input", {
       type: "text", class: "in wide", style: "margin-top:12px",
@@ -348,7 +352,7 @@ function typedCommitModal(spec) {
       status.textContent = "Committing intent…";
       try {
         await mutateCommands((doc) =>
-          prunePush(doc, spec.busKey, spec.entryFor(Number(qtySelect.value))),
+          prunePush(doc, spec.busKey, spec.entryFor(qtyValue())),
           `Dashboard: ${spec.title}`);
         status.textContent = "";
         commitBtn.replaceWith(el("div", { class: "note ok", style: "margin-top:12px" },

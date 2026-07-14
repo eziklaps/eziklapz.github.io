@@ -214,7 +214,8 @@ function renderBuyDesk(root) {
             `${o.id}${o.ae_order_ids?.length ? ` · AE ${o.ae_order_ids.join(", ")}` : ""}` +
             (o.payment_state === "paid" ? " · paid" : ""))),
         el("td", { class: "t" }, stateWord(o.state, ORDER_STATE_LABEL, ORDER_STATE_TONE)),
-        el("td", {}, joined.quantity != null ? fmtNum(joined.quantity) : "—"),
+        el("td", {}, (o.quantity ?? joined.quantity) != null
+          ? fmtNum(o.quantity ?? joined.quantity) : "—"),
         el("td", {}, o.order_cost != null ? fmtR(o.order_cost) : "—"),
         el("td", { class: "t" }, fmtAgo(o.placed_at || joined.received_at)),
         el("td", { class: "t", style: "font-size:11.5px" }, note)));
