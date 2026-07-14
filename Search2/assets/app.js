@@ -967,9 +967,11 @@ function renderApp() {
 const FILE_KEYS = { "admin.enc": "admin", "buyer.enc": "buyer", "seller.enc": "seller" };
 
 async function loadOne(name) {
-  // API-first (plaintext + ETag, no PBKDF2): needs the derived bearer, so
-  // the very first unlock always takes the blob path below — which is also
-  // what validates the passphrase (GCM auth failure = wrong passphrase).
+  // API-first (plaintext + ETag, no PBKDF2): attempt() adopts the derived
+  // bearer before the first refresh, so even the first unlock goes API-first
+  // while the desk API is up. The envelope path below covers API-down, and
+  // is what proves a wrong passphrase (GCM auth failure) — the API merely
+  // 401s a wrong-passphrase bearer and falls through to it.
   const api = await fetchDeskPayload(name);
   if (api.status === "changed") {
     S[FILE_KEYS[name]] = api.data;
@@ -1089,17 +1091,27 @@ async function boot() {
   const input = document.getElementById("pass-input");
 
   async function attempt(pass, remember) {
-    // 600k PBKDF2 iterations take seconds — say so instead of playing dead.
     const btn = document.querySelector("#gate-form button");
     const label = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Deriving keys… (a few seconds)";
+    btn.textContent = "Unlocking…";
     S.passphrase = pass;
+    // Derive the bus bearer BEFORE the first fetch: with it stored, loadOne
+    // takes the API-first plaintext path, so the unlock costs ONE 600k
+    // PBKDF2 run instead of four (three per-envelope decrypts + this
+    // token) plus three MB-scale blob downloads. It also doubles as the
+    // command-bus credential, so actions need nothing else. A wrong
+    // passphrase derives a wrong bearer — the API 401s, the blob path
+    // still runs, and GCM auth gives the definitive verdict below.
+    const hadStoredToken = !!localStorage.getItem(PAT_KEY);
+    await adoptBusToken(pass);
     try {
       await refreshAll({ firstUnlock: true });
     } catch (e) {
       S.passphrase = null;
       localStorage.removeItem(PASS_KEY);
+      // Don't let a bearer derived from an unproven passphrase linger.
+      if (!hadStoredToken) localStorage.removeItem(PAT_KEY);
       gateError.textContent = e.name === "OperationError"
         ? "Wrong passphrase." : `Could not load data: ${e.message}`;
       return false;
@@ -1110,9 +1122,6 @@ async function boot() {
     if (remember) localStorage.setItem(PASS_KEY, pass);
     gate.hidden = true;
     document.getElementById("app").hidden = false;
-    // The verified passphrase doubles as the bus credential — derive the
-    // token before the commands read so actions need nothing else.
-    await adoptBusToken(pass);
     readCommandsSafe().then((doc) => { if (doc) renderTopbar(); });
     refreshTimer = setInterval(() => refreshAll().catch(console.warn), REFRESH_MS);
     // 30s tick keeps ago-labels honest AND lets the stale banner appear by

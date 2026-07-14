@@ -175,6 +175,9 @@ async function adoptBusToken(passphrase) {
     if (token === _busDerived) return false;  // already rejected once
     _busDerived = token;
     localStorage.setItem(PAT_KEY, token);
+    // A fresh token invalidates any earlier 401 verdict (that verdict was
+    // about a different bearer) — let the desk API be tried again.
+    _apiAuthFailed = false;
     return true;
   } catch (e) {
     return false;  // WebCrypto/storage unavailable — the paste prompt still works

@@ -114,7 +114,8 @@ function runControlPanel(a) {
     el("option", { value: "180" }, "3 hours"),
     el("option", { value: "360" }, "6 hours"),
     el("option", { value: "720" }, "12 hours"),
-    el("option", { value: "1440" }, "24 hours"));
+    el("option", { value: "1440" }, "24 hours"),
+    el("option", { value: "continuous" }, "Continuous (24/7)"));
   const stageSelect = el("select", { class: "in", style: "max-width:290px" },
     ...STAGE_OPTIONS.map(([value, label]) => el("option", { value }, label)));
 
@@ -125,8 +126,12 @@ function runControlPanel(a) {
       el("b", {}, running ? "Running" : (a.funnel_state || "no run")),
       running && budget.minutes
         ? el("span", { class: "sub" },
-            `${fmtDur(budget.minutes * 60)} budget` +
-            (budget.deadline_at ? ` · ends ${fmtIn(budget.deadline_at)}` : ""))
+            budget.continuous
+              ? `continuous 24/7 · cycle ${budget.cycle || 1}`
+              : budget.run_until
+                ? `cycle ${budget.cycle || 1} · run ends ${fmtIn(budget.run_until)}`
+                : `${fmtDur(budget.minutes * 60)} budget` +
+                  (budget.deadline_at ? ` · ends ${fmtIn(budget.deadline_at)}` : ""))
         : null),
     el("button", {
       class: "b danger",
@@ -139,11 +144,17 @@ function runControlPanel(a) {
     el("button", {
       class: "b pri",
       onclick: () => {
-        const minutes = budgetSelect.value ? Number(budgetSelect.value) : null;
-        busAct(minutes ? `start run (${fmtDur(minutes * 60)})` : "start run", (doc) => {
+        const continuous = budgetSelect.value === "continuous";
+        const minutes = !continuous && budgetSelect.value
+          ? Number(budgetSelect.value) : null;
+        const label = continuous ? "start run (continuous 24/7)"
+          : minutes ? `start run (${fmtDur(minutes * 60)})` : "start run";
+        // continuous is written both ways: a stale true from a previous
+        // 24/7 start must not ride along under a plain duration pick.
+        busAct(label, (doc) => {
           doc.run = { ...(doc.run || {}), desired: "running",
                       start_requested_at: new Date().toISOString(),
-                      budget_minutes: minutes };
+                      budget_minutes: minutes, continuous };
         }, status);
       },
     }, "▶ Start run"),
