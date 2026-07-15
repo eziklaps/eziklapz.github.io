@@ -315,7 +315,10 @@ mutateCommands = async (mutate, message) => {
 /* Typed-confirmation modal (ORDER / LIST): the two commit flows with real
    consequences share one shape. spec = { title, product, lines[], warn,
    word, qtyLabel, qtyDefault, confirmLabel, entryFor(qty), busKey, doneText,
-   spendFor(qty)? — a node with the money math, re-built when qty changes } */
+   spendFor(qty)? — a node with the money math, re-built when qty changes,
+   extra? — caller-owned node rendered above the spend box (e.g. the
+   freight picker), bindRefresh?(fn) — hands the caller the spend-box
+   refresher so controls inside `extra` can re-run spendFor on change } */
 function typedCommitModal(spec) {
   withToken(() => {
     const qtySelect = el("input", {
@@ -332,6 +335,7 @@ function typedCommitModal(spec) {
       spendWrap.replaceChildren(spec.spendFor(qtyValue()) || "");
     };
     qtySelect.addEventListener("input", syncSpend);
+    if (spec.bindRefresh) spec.bindRefresh(syncSpend);
     syncSpend();
     const confirmInput = el("input", {
       type: "text", class: "in wide", style: "margin-top:12px",
@@ -373,6 +377,7 @@ function typedCommitModal(spec) {
       spec.warn ? el("div", { class: "note warn", style: "margin-top:12px" }, spec.warn) : null,
       el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:14px" },
         el("span", { class: "meta" }, spec.qtyLabel || "Quantity"), qtySelect),
+      spec.extra || null,
       spendWrap,
       spec.note ? el("div", { class: "note", style: "margin-top:12px" }, spec.note) : null,
       confirmInput, commitBtn,

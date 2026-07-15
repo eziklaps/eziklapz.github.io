@@ -499,7 +499,9 @@ function reorderAction(r, p) {
     qtyDefault: r.suggest_qty || undefined,
     line: `reorder: ~${r.position_days ?? "?"}d runway · suggested ` +
           `${r.suggest_qty ?? "?"} units via ${r.freight_tier || "cheap"} ` +
-          "freight (freight choice lands with the picker — Phase B)",
+          "freight — pick the matching service in the Shipping selector" +
+          (r.freight_tier === "fast"
+            ? ` (cheap would land ≈${r.gap_days_if_cheap}d late)` : ""),
   });
 }
 
@@ -879,11 +881,12 @@ function trendSection(p) {
    (goods × 1.10 uplift + duty) × 15%). The freight figure is the
    payload's single-unit shipment quote; multi-unit freight re-quotes
    live at verification, so it's labelled, not multiplied. */
-function orderSpendBox(p, qty) {
+function orderSpendBox(p, qty, freightOverride) {
   const unit = p.sku_price ?? p.ali_price_used;
   if (unit == null) return null;
   const goods = unit * qty;
-  const freight = p.freight != null ? Number(p.freight) : null;
+  const freight = freightOverride != null ? Number(freightOverride)
+    : p.freight != null ? Number(p.freight) : null;
   const pct = p.import_percentage != null ? Number(p.import_percentage) : null;
   const duty = pct != null ? goods * (pct / 100) : null;
   const vat = duty != null ? (goods * 1.10 + duty) * 0.15 : null;
@@ -940,6 +943,40 @@ function openOrderModal(p, opts = {}) {
     return;
   }
   const unitCost = p.sku_price ?? p.ali_price_used;
+
+  /* Shipping picker (Phase B of the deadline-driven freight plan): the
+     stored single-unit quotes name the choices; the pipeline re-quotes at
+     the real quantity and matches the chosen code (falling back to
+     cheapest with the swap on record if the service vanished). Keeping
+     the cheapest selected sends NO code — the pipeline keeps picking the
+     fresh cheapest, immune to stale quotes. */
+  const freightOpts = (p.freight_options || []).filter((o) => o.code);
+  const cheapestOpt = freightOpts.find((o) => o.cheapest)
+    || (freightOpts.length ? freightOpts.reduce((a, b) =>
+         ((a.cost ?? Infinity) <= (b.cost ?? Infinity) ? a : b)) : null);
+  const optLabel = (o) => {
+    const eta = Object.entries(o).find(([k, v]) =>
+      !["code", "company", "cost", "free", "cheapest"].includes(k)
+      && v != null && v !== "");
+    return `${o.company || o.code} — ${o.free ? "free" : o.cost != null
+      ? fmtR(o.cost) : "?"}${eta ? ` · ${eta[1]}` : ""}` +
+      (o === cheapestOpt ? " (cheapest)" : "");
+  };
+  const freightSel = freightOpts.length > 1
+    ? el("select", { class: "in", style: "flex:1;min-width:0;font-size:12px" },
+        ...freightOpts.map((o) => el("option", { value: o.code }, optLabel(o))))
+    : null;
+  if (freightSel && cheapestOpt) freightSel.value = cheapestOpt.code;
+  const chosen = () => freightOpts.find((o) => o.code === freightSel?.value)
+    || cheapestOpt;
+  const freightExtra = freightSel ? el("div", {},
+    el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+      el("span", { class: "meta" }, "Shipping"), freightSel),
+    el("div", { class: "hint", style: "margin-top:4px" },
+      "single-unit stored quotes — re-quoted at the real quantity before " +
+      "placing; a pick that can't clear the margin floor is rejected, " +
+      "never silently placed")) : null;
+
   typedCommitModal({
     title: "Order from AliExpress",
     product: p.title,
@@ -954,7 +991,11 @@ function openOrderModal(p, opts = {}) {
     qtyLabel: "Quantity",
     confirmLabel: "Commit order intent",
     busKey: "orders",
-    spendFor: (qty) => orderSpendBox(p, qty),
+    extra: freightExtra,
+    bindRefresh: (refresh) => {
+      if (freightSel) freightSel.addEventListener("change", refresh);
+    },
+    spendFor: (qty) => orderSpendBox(p, qty, chosen()?.cost),
     note: "The pipeline only places this if it still clears the margin floor, " +
       "stock, restrictions and the daily caps — and payment is completed on " +
       "aliexpress.com afterwards.",
@@ -962,6 +1003,9 @@ function openOrderModal(p, opts = {}) {
       id: `web-${p.asin}-${Date.now()}`,
       asin: p.asin, ali_id: p.ali_id, sku_id: p.sku_id,
       quantity: qty, source: "manual",
+      // Cheapest stays implicit (no code pinned) — see picker note above.
+      ...(chosen() && chosen() !== cheapestOpt
+        ? { freight_code: chosen().code } : {}),
       requested_at: new Date().toISOString(),
     }),
     doneText: "The pipeline re-verifies price, freight, restrictions and " +

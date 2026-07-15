@@ -400,12 +400,43 @@ function reconPanel(bank) {
     row.replaceChildren(el("span", { class: "st ok" }, `✓ ${sentWord} sent`));
   }
 
+  // What's already riding the bus for these lines. Without this chip the
+  // repaint from a not-yet-updated payload resurrected the buttons and
+  // presses looked ignored (rows "reappearing" — 2026-07-15). Buttons stay
+  // live: the sink applies the NEWEST press per line, so pressing again
+  // with a different account is a correction, never a duplicate.
+  const queued = {};
+  const bankBus = (S.commands || {}).banking || {};
+  for (const [key, kind] of [["expense_lines", "post"],
+                             ["dismiss_lines", "dismiss"]]) {
+    for (const e of bankBus[key] || []) {
+      if (!e.id || !e.requested_at) continue;
+      const age = Date.now() - new Date(e.requested_at).getTime();
+      if (!(age > -600e3 && age < 48 * 3600e3)) continue;
+      const held = queued[e.id];
+      if (!held || e.requested_at > held.at) {
+        queued[e.id] = { kind, account: e.account, at: e.requested_at };
+      }
+    }
+  }
+
   const list = el("div", { style: "margin-top:10px" });
   for (const ex of recon.exceptions || []) {
     const select = el("select", { class: "in", style: "font-size:12px;padding:4px 6px" },
       ...LINE_ACCOUNTS.map(([code, name]) =>
         el("option", { value: code }, `${code} ${name}`)));
+    const q = queued[ex.id];
+    if (q && q.account
+        && LINE_ACCOUNTS.some(([code]) => code === q.account)) {
+      select.value = q.account;
+    }
     const actions = el("div", { style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px" },
+      q ? el("span", {
+        class: "st warn",
+        title: "already committed to the command bus — serve applies it " +
+               "within ~30s and the line then leaves this list; pressing " +
+               "again just changes the target account (newest press wins)",
+      }, `🕐 ${q.kind}${q.account ? ` → ${q.account}` : ""} queued`) : null,
       (ex.amount ?? 0) < 0 ? select : null,
       (ex.amount ?? 0) < 0 ? el("button", {
         class: "b sm pri",
