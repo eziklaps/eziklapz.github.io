@@ -1,5 +1,6 @@
 /* Buy desk — sourcing & ordering across both demand channels: a master
-   table (Amazon / Takealot / Ordered tabs) with a sticky detail panel.
+   table (Amazon / Takealot / Reorder / Ordered tabs) with a sticky detail
+   panel.
    Ordering is REAL: the modal commits an order intent to the command bus
    and the pipeline re-verifies price/freight/margin before placing.
    Row cells here are shared with the Today desk's "best of" table. */
@@ -27,6 +28,12 @@ function renderBuyDesk(root) {
   const amazon = products.filter((p) => (p.channel || "amazon") === "amazon");
   const takealot = products.filter((p) => p.channel === "takealot");
   const ordered = products.filter((p) => p.order);
+  // Reorder queue (server-computed, services/replenish.py): stocked
+  // products whose runway ends inside the reorder window, urgency-sorted.
+  // Pre-restart payloads carry no reorders key — the tab waits for it.
+  const reorders = Array.isArray((S.buyer || {}).reorders)
+    ? S.buyer.reorders : null;
+  const reorderDue = (reorders || []).filter((r) => r.status === "order_now");
   const hidden = filterable
     ? (amazon.length - shown(amazon).length)
       + (takealot.length - shown(takealot).length)
@@ -78,6 +85,7 @@ function renderBuyDesk(root) {
   root.append(el("div", { class: "tabs" },
     tab("amazon", `Amazon (${shown(amazon).length})`),
     tab("takealot", `Takealot (${shown(takealot).length})`),
+    reorders ? tab("reorder", `Reorder (${reorderDue.length})`) : null,
     tab("ordered", `Ordered (${ordered.length + phantoms.length})`),
     filterChip,
     el("div", { style: "flex:1" }),
@@ -109,6 +117,7 @@ function renderBuyDesk(root) {
   }
 
   function renderList() {
+    if (S.buyTab === "reorder") { renderReorder(); return; }
     const list = currentList();
     const sel = list.find((p) => p.asin === S.buySel) || list[0] || null;
     listWrap.replaceChildren();
@@ -223,6 +232,64 @@ function renderBuyDesk(root) {
     return el("div", { class: "scroll-x" }, table);
   }
 
+  /* The Reorder tab: rows come from the server's replenish feed, not the
+     products list — the queue IS the sort (most urgent runway first), so
+     the sort select doesn't apply here; search still narrows by title. */
+  function renderReorder() {
+    const q = S.buySearch.trim().toLowerCase();
+    let list = reorders || [];
+    if (q) list = list.filter((r) => (r.title || "").toLowerCase().includes(q));
+    const sel = list.find((r) => r.asin === S.buySel) || list[0] || null;
+    listWrap.replaceChildren();
+    if (!list.length) {
+      listWrap.append(el("div", { class: "empty", style: "padding:14px" },
+        "Nothing needs reordering — stocked products appear here once " +
+        "their runway (sellable + inbound, at the observed sales rate) " +
+        `drops under ${bf.reorder_window ?? 35} days or they sell out.`));
+    } else {
+      listWrap.append(reorderTable(list, sel));
+      listWrap.append(el("div", { class: "hint", style: "padding:8px 10px" },
+        "sorted by runway — this list is the order queue · ⚡ fast freight " +
+        "is suggested only when a PROVEN seller (own sales) would stock " +
+        "out before cheap freight lands · greyed rows are already " +
+        "preordered"));
+    }
+    detailWrap.replaceChildren();
+    const p = sel ? buyerByAsin()[sel.asin] : null;
+    if (p) detailWrap.append(buyDetail(p));
+    else if (sel) detailWrap.append(reorderDetail(sel));
+  }
+
+  function reorderTable(list, sel) {
+    const byAsin = buyerByAsin();
+    const table = el("table", { class: "grid" },
+      el("tr", {},
+        el("th", {}, ""), el("th", {}, "Product"), el("th", {}, "Stock"),
+        el("th", {}, "Sells"), el("th", {}, "Runway"),
+        el("th", {}, "Suggested"), el("th", { class: "r" }, "Order")));
+    for (const r of list) {
+      const p = byAsin[r.asin];
+      table.append(el("tr", {
+        class: `click${sel && sel.asin === r.asin ? " sel" : ""}`,
+        style: r.status === "covered" ? "opacity:.55" : "",
+        "data-focus": r.asin,
+        onclick: () => { S.buySel = r.asin; renderList(); },
+      },
+        el("td", {}, thumbEl(r)),
+        el("td", { class: "t" },
+          el("div", { class: "rowtitle" }, r.title),
+          el("div", { class: "rowsub" },
+            (r.channel === "takealot" ? "🛒 Takealot · " : "") + r.asin +
+            (r.manual ? ` · wholesale (${r.supplier || "supplier"})` : ""))),
+        el("td", { class: "t", style: "font-size:12px" }, reorderStockCell(r)),
+        el("td", { class: "t" }, reorderSellsCell(r)),
+        el("td", {}, reorderRunwayCell(r)),
+        el("td", { class: "t" }, reorderSuggestCell(r)),
+        el("td", { class: "r t" }, reorderAction(r, p))));
+    }
+    return el("div", { class: "scroll-x" }, table);
+  }
+
   renderList();
 }
 
@@ -320,7 +387,7 @@ function sellingChip(p) {
   return null;
 }
 
-function buyRowAction(p) {
+function buyRowAction(p, orderOpts) {
   const o = p.order;
   const active = { pending: 1, verified: 1, placing: 1 };
   if (o && active[o.state]) {
@@ -346,8 +413,115 @@ function buyRowAction(p) {
     || o.state === "failed" || o.state === "cancelled");
   return el("button", {
     class: `b sm ${again ? "line" : "pri"}`,
-    onclick: (ev) => { ev.stopPropagation(); openOrderModal(p); },
+    onclick: (ev) => { ev.stopPropagation(); openOrderModal(p, orderOpts); },
   }, again ? "Order again" : "Order");
+}
+
+/* ---------- Reorder tab cells (rows from services/replenish.py) ---------- */
+
+function reorderStockCell(r) {
+  const bits = [`${fmtNum(r.available)} sellable`];
+  if (r.inbound_units) bits.push(`+${fmtNum(r.inbound_units)} inbound`);
+  if (r.committed) bits.push(`${fmtNum(r.committed)} promised`);
+  return el("span", {}, bits.join(" · "));
+}
+
+function reorderSellsCell(r) {
+  if (r.own_sold_28d) {
+    return el("span", {}, `${fmtNum(r.own_sold_28d)} sold/28d `,
+      r.proven
+        ? el("span", { class: "st ok",
+            title: "own sales prove the demand — fast freight unlockable" },
+            "proven")
+        : el("span", { class: "st",
+            title: "too few own sales to prove demand yet" }, "thin"));
+  }
+  if (r.est_units_month != null) {
+    return el("span", {}, `≈${fmtNum(Math.round(r.est_units_month))}/mo `,
+      el("span", { class: "st",
+        title: "market estimate — no own sales recorded yet" }, "estimate"));
+  }
+  return el("span", { style: "color:var(--muted)" }, "no signal");
+}
+
+function reorderRunwayCell(r) {
+  if (r.status === "covered") {
+    return el("span", { class: "st" },
+      "covered" + (r.inbound_eta ? ` · ETA ${fmtDate(r.inbound_eta)}` : ""));
+  }
+  if (r.available <= 0) return el("span", { class: "st bad" }, "OUT");
+  if (r.position_days == null) {
+    return el("span", { style: "color:var(--muted)" }, "—");
+  }
+  const d = r.position_days;
+  const cls = d < 7 ? "st bad" : d < 20 ? "st hot" : "st";
+  return el("span", { class: cls }, `~${Math.round(d)}d`);
+}
+
+function reorderSuggestCell(r) {
+  if (r.status === "covered") {
+    return el("span", { style: "color:var(--muted)" }, "preordered");
+  }
+  const cell = el("span", {});
+  if (r.suggest_qty) cell.append(`${fmtNum(r.suggest_qty)} units · `);
+  cell.append(r.freight_tier === "fast"
+    ? el("span", { class: "st hot",
+        title: `cheap freight would land ≈${r.gap_days_if_cheap}d after ` +
+               "stockout — proven demand justifies paying for speed" },
+        "⚡ fast freight")
+    : el("span", { class: "st",
+        title: "cheap freight lands before the stockout deadline" },
+        "🐢 cheap freight"));
+  if (r.freight_tier === "cheap" && r.gap_days_if_cheap) {
+    // Caught short WITHOUT proven demand: cheap stays the rule, but the
+    // expected stockout gap is stated instead of silently eaten.
+    cell.append(" ", el("span", { class: "st warn",
+      title: "demand not proven by own sales — cheap freight stays the " +
+             "rule; this is the expected out-of-stock gap it costs" },
+      `≈${r.gap_days_if_cheap}d gap`));
+  }
+  return cell;
+}
+
+function reorderAction(r, p) {
+  if (r.status === "covered") return el("span", { class: "st" }, "🚚 on the road");
+  if (r.manual) {
+    return el("span", { class: "st",
+      title: "wholesale/manual stock — no AliExpress intent to reorder through" },
+      `reorder from ${r.supplier || "supplier"}`);
+  }
+  if (!p) {
+    return el("span", { style: "color:var(--muted)", title:
+      "not in the winners payload (no matched AliExpress SKU on record) — " +
+      "reorder on AliExpress directly" }, "no intent path");
+  }
+  return buyRowAction(p, {
+    qtyDefault: r.suggest_qty || undefined,
+    line: `reorder: ~${r.position_days ?? "?"}d runway · suggested ` +
+          `${r.suggest_qty ?? "?"} units via ${r.freight_tier || "cheap"} ` +
+          "freight (freight choice lands with the picker — Phase B)",
+  });
+}
+
+/* Detail fallback for reorder rows whose product left the winners payload
+   — stock context only, no margin trail to show. */
+function reorderDetail(r) {
+  const card = el("div", { class: "panel" });
+  card.append(el("h3", {}, r.title));
+  card.append(el("div", { class: "chiprow" },
+    reorderRunwayCell(r), reorderSellsCell(r),
+    r.live ? el("span", { class: "st ok" }, "● live") : null));
+  card.append(el("div", { class: "sect" },
+    el("div", { class: "sl" }, "Stock position"),
+    el("div", { style: "font-size:12.5px;line-height:1.7" },
+      `on hand ${fmtNum(r.on_hand)} · sellable ${fmtNum(r.available)} · ` +
+      `inbound ${fmtNum(r.inbound_units)} · promised ${fmtNum(r.committed)}` +
+      (r.returns_held ? ` · returns held ${fmtNum(r.returns_held)}` : ""))));
+  card.append(el("div", { class: "hint" },
+    "this product is no longer in the winners payload, so there is no " +
+    "margin trail or Order intent path here — reorder on AliExpress " +
+    "directly, or via the supplier for wholesale stock"));
+  return card;
 }
 
 /* ---------- detail panel ---------- */
@@ -755,7 +929,7 @@ function orderGateWarn() {
   return null;
 }
 
-function openOrderModal(p) {
+function openOrderModal(p, opts = {}) {
   if (!p.ali_id || !p.sku_id) {
     openModal(
       el("h3", {}, "Can't order this one"),
@@ -772,9 +946,11 @@ function openOrderModal(p) {
     lines: [`item ${p.ali_id} · SKU ${p.sku_id} · ~${fmtR(unitCost)}/unit · ` +
             (p.net_margin != null ? `net ${fmtR(p.net_margin)} / ` : "") +
             `margin ${fmtR(p.margin_total)} (${p.margin_percent ?? "—"}%) at ` +
-            `${p.channel === "takealot" ? "Takealot" : "Amazon"} price`],
+            `${p.channel === "takealot" ? "Takealot" : "Amazon"} price`,
+            ...(opts.line ? [opts.line] : [])],
     warn: orderGateWarn(),
     word: "ORDER",
+    qtyDefault: opts.qtyDefault,
     qtyLabel: "Quantity",
     confirmLabel: "Commit order intent",
     busKey: "orders",
