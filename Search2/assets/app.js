@@ -204,15 +204,15 @@ function stateWord(state, labels = INTENT_LABEL, tones = INTENT_TONE) {
 }
 
 const ORDER_STATE_LABEL = {
-  pending: "⏳ awaiting verification", verified: "✅ verified",
-  placing: "🛒 placing…", placed: "📦 placed",
+  proposed: "🤖 proposed — approve?", pending: "⏳ awaiting verification",
+  verified: "✅ verified", placing: "🛒 placing…", placed: "📦 placed",
   received: "📥 received", needs_review: "🚨 needs review",
   rejected: "↩ rejected", failed: "✗ failed", cancelled: "🚫 cancelled",
 };
 const ORDER_STATE_TONE = {
-  pending: "mute", verified: "ok", placing: "warn", placed: "ok",
-  received: "ok", needs_review: "bad", rejected: "mute", failed: "hot",
-  cancelled: "mute",
+  proposed: "warn", pending: "mute", verified: "ok", placing: "warn",
+  placed: "ok", received: "ok", needs_review: "bad", rejected: "mute",
+  failed: "hot", cancelled: "mute",
 };
 
 /* ---------- modal + command-bus plumbing ---------- */
@@ -506,7 +506,7 @@ function busOrderPhantoms() {
     (((S.admin || {}).orders || {}).recent || []).map((r) => r.id));
   const byAsin = buyerByAsin();
   return (c.orders || []).filter((o) => {
-    if (o.cancel || o.received || !o.id || !o.requested_at) return false;
+    if (o.cancel || o.received || o.approve || !o.id || !o.requested_at) return false;
     const age = Date.now() - new Date(o.requested_at).getTime();
     if (!(age > -600e3 && age < 48 * 3600e3)) return false;
     if (known.has(o.id)) return false;

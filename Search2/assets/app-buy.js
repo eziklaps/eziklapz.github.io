@@ -11,8 +11,10 @@ const FLAG_LABELS = {
   "offers-gone": "🕳 competitor out",
 };
 
-const ORDERED_RANK = { placed: 0, placing: 1, verified: 2, pending: 3,
-                       needs_review: 4, received: 5 };
+/* proposed first: an auto-reorder waiting on a human decision outranks
+   watching money that already moved. */
+const ORDERED_RANK = { proposed: -1, placed: 0, placing: 1, verified: 2,
+                       pending: 3, needs_review: 4, received: 5 };
 
 function renderBuyDesk(root) {
   const products = (S.buyer || {}).products || [];
@@ -204,7 +206,9 @@ function renderBuyDesk(root) {
       const joined = byId[o.id] || {};
       const latest = o.tracking?.events?.[0];
       let note;
-      if (o.state === "placed" && latest) {
+      if (o.state === "proposed") {
+        note = proposalActions(o);
+      } else if (o.state === "placed" && latest) {
         note = el("span", {}, `🚚 ${latest.name || "update"} · ${fmtAgo(latest.at)}`
           + (o.tracking.eta_at ? ` · ETA ${fmtDate(o.tracking.eta_at)}` : ""));
       } else if (o.state === "placed" && o.payment_state !== "paid") {
@@ -389,6 +393,7 @@ function sellingChip(p) {
 
 function buyRowAction(p, orderOpts) {
   const o = p.order;
+  if (o?.state === "proposed") return proposalActions(o);
   const active = { pending: 1, verified: 1, placing: 1 };
   if (o && active[o.state]) {
     return stateWord(o.state, ORDER_STATE_LABEL, ORDER_STATE_TONE);
@@ -415,6 +420,36 @@ function buyRowAction(p, orderOpts) {
     class: `b sm ${again ? "line" : "pri"}`,
     onclick: (ev) => { ev.stopPropagation(); openOrderModal(p, orderOpts); },
   }, again ? "Order again" : "Order");
+}
+
+/* Approve / Dismiss for an auto-reorder proposal (Phase C): both are
+   plain bus claims — approve flips proposed→pending (then the normal
+   verify/place path runs, gates and all), dismiss cancels and starts the
+   re-mint cooldown. The wrap swaps to a sent-chip so one decision can't
+   be pressed twice. */
+function proposalActions(o) {
+  const wrap = el("span", { style: "display:inline-flex;gap:6px;align-items:center" });
+  const claim = (label, entry, chip) => (ev) => {
+    ev.stopPropagation();
+    busAct(`${label} ${o.id}`, (doc) => prunePush(doc, "orders", {
+      id: o.id, ...entry, requested_at: new Date().toISOString(),
+    }), null, "");
+    wrap.replaceChildren(el("span", { class: "st warn" }, chip));
+  };
+  wrap.append(
+    el("button", {
+      class: "b sm pri",
+      title: o.note || "auto-reorder proposal — approving queues the normal " +
+             "verify → place path (margin floor, affordability gate, caps)",
+      onclick: claim("approve proposal", { approve: true }, "🕐 approval sent"),
+    }, "Approve"),
+    el("button", {
+      class: "b sm",
+      title: "dismisses this proposal — the ASIN won't be re-proposed for " +
+             "the cooldown window",
+      onclick: claim("dismiss proposal", { cancel: true }, "🕐 dismissal sent"),
+    }, "Dismiss"));
+  return wrap;
 }
 
 /* ---------- Reorder tab cells (rows from services/replenish.py) ---------- */
