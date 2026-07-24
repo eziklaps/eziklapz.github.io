@@ -245,6 +245,8 @@ function renderBuyDesk(root) {
     if (q) list = list.filter((r) => (r.title || "").toLowerCase().includes(q));
     const sel = list.find((r) => r.asin === S.buySel) || list[0] || null;
     listWrap.replaceChildren();
+    const arm = autoReorderSwitch();
+    if (arm) listWrap.append(arm);
     if (!list.length) {
       listWrap.append(el("div", { class: "empty", style: "padding:14px" },
         "Nothing needs reordering — stocked products appear here once " +
@@ -450,6 +452,58 @@ function proposalActions(o) {
       onclick: claim("dismiss proposal", { cancel: true }, "🕐 dismissal sent"),
     }, "Dismiss"));
   return wrap;
+}
+
+/* The Phase C arm: a switch that lets the pipeline mint 'proposed' reorder
+   intents on its own (proven sellers, cheap freight, capped per pass).
+   Proposals stay inert — Approve/Dismiss on the desk is still the money
+   decision, which is why a confirm() suffices here where ordering itself
+   demands the typed-word modal. Renders nothing on payloads that predate
+   the switch (serve not restarted yet). */
+function autoReorderSwitch() {
+  const cfg = (S.buyer || {}).auto_reorder;
+  if (!cfg) return null;
+  // A press still riding the bus wins the display: the sink stamps the
+  // applied press into runtime_state, and the payload echoes that stamp —
+  // a bus stamp the payload hasn't echoed yet = flip in flight.
+  const press = (S.commands || {}).auto_reorder || null;
+  const pending = press && press.requested_at
+    && press.requested_at !== cfg.requested_at ? press : null;
+  const on = pending ? !!pending.enabled : !!cfg.enabled;
+  const cadence = `up to ${cfg.max_per_pass ?? 5} proposals every ` +
+    `${cfg.pass_hours ?? 6}h — proven sellers (own sales), cheap freight ` +
+    "only; every proposal still waits for Approve";
+  const btn = el("button", {
+    class: `b sm ${on ? "" : "pri"}`,
+    ...(pending ? { disabled: "" } : {}),
+    onclick: () => {
+      if (!confirm(on
+        ? "Switch auto-reorder OFF? The pipeline stops proposing reorders; " +
+          "proposals already on the desk stay until approved or dismissed."
+        : `Switch auto-reorder ON? The pipeline mints ${cadence}.`)) return;
+      busAct(`auto-reorder ${on ? "off" : "on"}`, (doc) => {
+        doc.auto_reorder = {
+          enabled: !on, requested_at: new Date().toISOString(),
+        };
+      }, null, "");
+      // Same one-press guard as proposalActions: the button dies the
+      // moment a flip is committed; the payload echo re-arms it.
+      btn.replaceWith(el("span", { class: "st warn" }, "🕐 applying"));
+    },
+  }, on ? "Switch off" : "Switch on…");
+  return el("div", {
+    class: "note", style: "display:flex;align-items:center;gap:10px;" +
+      "flex-wrap:wrap;margin:10px 10px 4px",
+  },
+    el("b", {}, `🤖 Auto-reorder ${on ? "ON" : "OFF"}`),
+    pending ? el("span", { class: "st warn",
+      title: "the flip is on the command bus — the pipeline applies it " +
+             "within ~30s while a run or serve is active" }, "🕐 applying")
+      : null,
+    el("span", { class: "hint", style: "flex:1;min-width:200px" },
+      on ? cadence
+         : "off — the queue below is advice only; nothing is proposed"),
+    btn);
 }
 
 /* ---------- Reorder tab cells (rows from services/replenish.py) ---------- */

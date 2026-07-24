@@ -966,8 +966,40 @@ function bookCourierModal(m) {
   });
 }
 
+/* In-transit → on-hand from the Stock desk: the Road units behind a row
+   are order intents, so receiving rides the Buy desk's markReceivedModal
+   (same bus command — books inventory, closes tracking, posts COGS).
+   Several parcels for one SKU need a pick first; the app has ONE modal
+   dialog, so the picker must close before the receipt modal opens. */
+function receiveInboundModal(r, inbound) {
+  const toOrder = (t) => ({ id: t.intent_id, quantity: t.quantity,
+                            ae_order_ids: t.ae_order_ids || [] });
+  if (inbound.length === 1) { markReceivedModal(r.product, toOrder(inbound[0])); return; }
+  withToken(() => {
+    openModal(
+      el("h3", {}, "Which parcel arrived?"),
+      el("p", { class: "meta", style: "margin-top:8px" },
+        `${r.title} has ${inbound.length} shipments on the road — receive ` +
+        "the one in your hands; the rest stay in transit."),
+      ...inbound.map((t) => el("div",
+        { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "flex:1;min-width:0" },
+          `×${t.quantity}` +
+          (t.eta_at ? ` · ETA ${fmtDate(t.eta_at)}` : "") +
+          ((t.ae_order_ids || []).length ? ` · AE ${t.ae_order_ids.join(", ")}` : "")),
+        el("button", {
+          class: "b sm pri",
+          onclick: () => { modalEl().close(); markReceivedModal(r.product, toOrder(t)); },
+        }, "Mark received…"))),
+      el("button", { class: "b wide", style: "margin-top:14px",
+        onclick: () => modalEl().close() }, "Cancel"));
+  });
+}
+
 function stockRow(r, m) {
   const p = r.product;
+  const inbound = r.road > 0
+    ? m.transit.filter((t) => t.asin === r.asin) : [];
   let cover;
   if (r.coverDays != null) {
     cover = r.coverDays < 1 ? el("span", { class: "st bad" }, "<1d 🔴")
@@ -997,7 +1029,11 @@ function stockRow(r, m) {
       }),
     }, "Queue listing →");
   } else if (r.group === "transit") {
-    action = el("span", { class: "hint" }, "🚚 in transit");
+    action = inbound.length
+      ? el("button", { class: "b sm pri",
+          onclick: () => receiveInboundModal(r, inbound) },
+          inbound.length > 1 ? `Mark received (${inbound.length})` : "Mark received")
+      : el("span", { class: "hint" }, "🚚 in transit");
   }
   const sub = [];
   if (r.manual) sub.push(`📦 manual stock${r.supplier ? ` — ${r.supplier}` : ""}`);
@@ -1037,6 +1073,10 @@ function stockRow(r, m) {
     el("td", { class: "r" }, r.value ? fmtR(Math.round(r.value)) : el("span", { style: "color:var(--muted)" }, "—")),
     el("td", { class: "r" }, cover),
     el("td", { class: "r t", style: "white-space:nowrap" }, action,
+      r.group !== "transit" && inbound.length ? el("button", {
+        class: "b sm line", style: "margin-left:6px",
+        onclick: () => receiveInboundModal(r, inbound),
+      }, "Mark received") : null,
       r.dcOwed ? el("button", {
         class: "b sm line", style: "margin-left:6px",
         onclick: () => bookCourierModal(m),
