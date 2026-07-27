@@ -22,6 +22,9 @@ function stockModel() {
 
   const transit = (stock.transit || []).map((t) => ({
     ...t,
+    /* still on the road = ordered minus tranches already on the shelf —
+       a split order's received boxes must stop counting as inbound */
+    remaining: Math.max((t.quantity || 1) - (t.received_units || 0), 0),
     stalled: t.last_movement_at
       && (Date.now() - new Date(t.last_movement_at).getTime()) > 10 * 864e5,
   }));
@@ -56,7 +59,7 @@ function stockModel() {
     if (!t.asin) continue;
     const r = row(t.asin);
     r.title = t.title || r.title;
-    r.road += t.quantity || 0;
+    r.road += t.remaining;
     t.row = r;
   }
   const committed = stock.committed || {};
@@ -418,8 +421,9 @@ function renderStockDesk(root) {
   const m = stockModel();
   const skus = m.rows.filter((r) => r.onHand > 0).length;
   const units = m.rows.reduce((s, r) => s + r.onHand, 0);
-  const roadUnits = m.transit.reduce((s, t) => s + (t.quantity || 0), 0);
-  const roadValue = m.transit.reduce((s, t) => s + (t.cost || 0), 0);
+  const roadUnits = m.transit.reduce((s, t) => s + t.remaining, 0);
+  const roadValue = m.transit.reduce((s, t) => s + (t.cost || 0)
+    * (t.quantity ? t.remaining / t.quantity : 1), 0);
   const sellable = m.rows.filter((r) => r.live)
     .reduce((s, r) => s + Math.max(r.available, 0), 0);
   const committedUnits = m.rows.reduce((s, r) => s + r.mfnOpen + r.dcOwed + r.returns, 0);
@@ -469,17 +473,20 @@ function renderStockDesk(root) {
   for (const t of m.transit.slice(0, 3)) {
     roadCell.append(el("div", { class: "flowrow" },
       el("span", { style: "font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis" },
-        `${t.title || t.asin || t.intent_id} ×${t.quantity}`),
+        `${t.title || t.asin || t.intent_id} ×${t.remaining}`),
       t.stalled
         ? el("span", { class: "st bad" }, `⚠ stalled ${Math.round((Date.now() - new Date(t.last_movement_at)) / 864e5)}d`)
         : el("span", { style: "color:var(--ink2);white-space:nowrap" },
             t.eta_at ? `ETA ${fmtDate(t.eta_at)}` : (t.state || "in transit"))));
     /* the waybill is what's printed on the box — the match key in hand */
-    if ((t.tracking_refs || []).length) {
+    const bits = [];
+    if ((t.tracking_refs || []).length) bits.push(`🏷 ${t.tracking_refs.join(" · ")}`);
+    if (t.received_units) bits.push(`${t.received_units} of ${t.quantity} already in`);
+    if (bits.length) {
       roadCell.append(el("div", {
         class: "flowrow",
         style: "border-top:0;padding-top:0;color:var(--ink2)",
-      }, el("span", {}, `🏷 ${t.tracking_refs.join(" · ")}`)));
+      }, el("span", {}, bits.join(" · "))));
     }
   }
   if (m.transit.length > 3) {
@@ -982,7 +989,10 @@ function bookCourierModal(m) {
    Several parcels for one SKU need a pick first; the app has ONE modal
    dialog, so the picker must close before the receipt modal opens. */
 function receiveInboundModal(r, inbound) {
-  const toOrder = (t) => ({ id: t.intent_id, quantity: t.quantity,
+  const toOrder = (t) => ({ id: t.intent_id,
+                            quantity: t.remaining || t.quantity,
+                            ordered: t.quantity,
+                            received: t.received_units || 0,
                             ae_order_ids: t.ae_order_ids || [],
                             tracking_refs: t.tracking_refs || [] });
   if (inbound.length === 1) { markReceivedModal(r.product, toOrder(inbound[0])); return; }
@@ -999,7 +1009,8 @@ function receiveInboundModal(r, inbound) {
             ? el("span", { style: "font-weight:650;color:var(--ink)" },
                 `🏷 ${t.tracking_refs.join(", ")} · `)
             : null,
-          `×${t.quantity}` +
+          `×${t.remaining}` +
+          (t.received_units ? ` (${t.received_units} of ${t.quantity} in)` : "") +
           (t.eta_at ? ` · ETA ${fmtDate(t.eta_at)}` : "") +
           ((t.ae_order_ids || []).length ? ` · AE ${t.ae_order_ids.join(", ")}` : "")),
         el("button", {
@@ -1034,7 +1045,8 @@ function findParcelModal(m) {
     const receive = (t) => {
       modalEl().close();
       markReceivedModal((t.row || {}).product || null, {
-        id: t.intent_id, quantity: t.quantity,
+        id: t.intent_id, quantity: t.remaining || t.quantity,
+        ordered: t.quantity, received: t.received_units || 0,
         ae_order_ids: t.ae_order_ids || [],
         tracking_refs: t.tracking_refs || [],
       });
@@ -1061,7 +1073,8 @@ function findParcelModal(m) {
                 ? `🏷 ${t.tracking_refs.join(", ")}`
                 : "🏷 no waybill yet"),
             el("br", {}),
-            `${t.title || t.asin || t.intent_id} ×${t.quantity}` +
+            `${t.title || t.asin || t.intent_id} ×${t.remaining}` +
+            (t.received_units ? ` (${t.received_units} of ${t.quantity} in)` : "") +
             (t.eta_at ? ` · ETA ${fmtDate(t.eta_at)}` : "") +
             ((t.ae_order_ids || []).length ? ` · AE ${t.ae_order_ids.join(", ")}` : "")),
           el("button", { class: "b sm pri", onclick: () => receive(t) },

@@ -1166,7 +1166,9 @@ function markReceivedModal(p, o) {
         "frees the Order button for a restock."),
       el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:12px" },
         el("span", { class: "meta" }, "units in hand"), qtyIn,
-        expected ? el("span", { class: "meta" }, `ordered ${expected}`) : null),
+        expected ? el("span", { class: "meta" },
+          `ordered ${o.ordered ?? expected}`
+          + (o.received ? ` · ${o.received} already in` : "")) : null),
       el("label", { style: "display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--ink2)" },
         partialChk,
         "partial delivery — book this box now, keep the order open (Ali splits orders)"),
