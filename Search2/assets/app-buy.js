@@ -225,6 +225,7 @@ function renderBuyDesk(root) {
           el("div", { class: "rowtitle" }, p.title),
           el("div", { class: "rowsub" },
             `${o.id}${o.ae_order_ids?.length ? ` · AE ${o.ae_order_ids.join(", ")}` : ""}` +
+            (o.tracking?.mail_no ? ` · 🏷 ${o.tracking.mail_no}` : "") +
             (o.payment_state === "paid" ? " · paid" : ""))),
         el("td", { class: "t" }, stateWord(o.state, ORDER_STATE_LABEL, ORDER_STATE_TONE)),
         el("td", {}, (o.quantity ?? joined.quantity) != null
@@ -1106,6 +1107,9 @@ function openOrderModal(p, opts = {}) {
 function markReceivedModal(p, o) {
   withToken(() => {
     const status = statusLine();
+    /* the Stock desk hands refs in; the Buy desk's order carries one */
+    const refs = (o.tracking_refs || []).length ? o.tracking_refs
+      : (o.tracking?.mail_no ? [o.tracking.mail_no] : []);
     const expected = o.quantity != null ? Number(o.quantity) : null;
     const qtyIn = el("input", {
       type: "number", class: "in", min: "1", max: "999",
@@ -1155,7 +1159,9 @@ function markReceivedModal(p, o) {
       el("h3", {}, "Mark order received"),
       el("p", { class: "meta", style: "margin-top:8px" },
         `The parcel for intent ${o.id} (AliExpress order ` +
-        `${(o.ae_order_ids || []).join(", ")}) arrived. This closes tracking, ` +
+        `${(o.ae_order_ids || []).join(", ")}` +
+        (refs.length ? ` · waybill ${refs.join(", ")}` : "") +
+        ") arrived. This closes tracking, " +
         "books the goods into inventory at their estimated landed cost, and " +
         "frees the Order button for a restock."),
       el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:12px" },

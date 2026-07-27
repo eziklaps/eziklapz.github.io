@@ -474,6 +474,13 @@ function renderStockDesk(root) {
         ? el("span", { class: "st bad" }, `⚠ stalled ${Math.round((Date.now() - new Date(t.last_movement_at)) / 864e5)}d`)
         : el("span", { style: "color:var(--ink2);white-space:nowrap" },
             t.eta_at ? `ETA ${fmtDate(t.eta_at)}` : (t.state || "in transit"))));
+    /* the waybill is what's printed on the box — the match key in hand */
+    if ((t.tracking_refs || []).length) {
+      roadCell.append(el("div", {
+        class: "flowrow",
+        style: "border-top:0;padding-top:0;color:var(--ink2)",
+      }, el("span", {}, `🏷 ${t.tracking_refs.join(" · ")}`)));
+    }
   }
   if (m.transit.length > 3) {
     roadCell.append(el("div", { class: "flowrow", style: "color:var(--muted)" },
@@ -555,6 +562,9 @@ function renderStockDesk(root) {
     right: el("span", {},
       "cover = available (on hand − committed) ÷ daily velocity · " +
       `reorder when position < ${LEAD_TIME_DAYS + SAFETY_STOCK_DAYS}d · `,
+      el("a", { onclick: () => findParcelModal(m), style: "cursor:pointer" },
+        "Find parcel…"),
+      " · ",
       el("a", { onclick: () => receiveStockModal(m), style: "cursor:pointer" },
         "Receive stock…")),
   });
@@ -973,7 +983,8 @@ function bookCourierModal(m) {
    dialog, so the picker must close before the receipt modal opens. */
 function receiveInboundModal(r, inbound) {
   const toOrder = (t) => ({ id: t.intent_id, quantity: t.quantity,
-                            ae_order_ids: t.ae_order_ids || [] });
+                            ae_order_ids: t.ae_order_ids || [],
+                            tracking_refs: t.tracking_refs || [] });
   if (inbound.length === 1) { markReceivedModal(r.product, toOrder(inbound[0])); return; }
   withToken(() => {
     openModal(
@@ -984,6 +995,10 @@ function receiveInboundModal(r, inbound) {
       ...inbound.map((t) => el("div",
         { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
         el("span", { class: "meta", style: "flex:1;min-width:0" },
+          (t.tracking_refs || []).length
+            ? el("span", { style: "font-weight:650;color:var(--ink)" },
+                `🏷 ${t.tracking_refs.join(", ")} · `)
+            : null,
           `×${t.quantity}` +
           (t.eta_at ? ` · ETA ${fmtDate(t.eta_at)}` : "") +
           ((t.ae_order_ids || []).length ? ` · AE ${t.ae_order_ids.join(", ")}` : "")),
@@ -993,6 +1008,124 @@ function receiveInboundModal(r, inbound) {
         }, "Mark received…"))),
       el("button", { class: "b wide", style: "margin-top:14px",
         onclick: () => modalEl().close() }, "Cancel"));
+  });
+}
+
+/* Parcel-first receiving — the label in your hand finds its product.
+   Type any part of the waybill (ZA000375450R), AE order or title, or
+   photograph the label: its barcode IS the waybill, and the browser's
+   built-in BarcodeDetector reads the still photo — no upload, no server,
+   no OCR bill. The typed/tapped list is always there as the manual
+   fallback (and the only path where BarcodeDetector is unsupported). */
+function findParcelModal(m) {
+  withToken(() => {
+    const norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const parcels = m.transit.map((t) => ({
+      t,
+      hay: [...(t.tracking_refs || []), ...(t.ae_order_ids || []),
+            t.asin, t.title, t.intent_id].map(norm).filter(Boolean).join(" "),
+    }));
+    const input = el("input", {
+      class: "in", style: "flex:1",
+      placeholder: "waybill / AE order / product",
+    });
+    const list = el("div", {});
+    const status = statusLine();
+    const receive = (t) => {
+      modalEl().close();
+      markReceivedModal((t.row || {}).product || null, {
+        id: t.intent_id, quantity: t.quantity,
+        ae_order_ids: t.ae_order_ids || [],
+        tracking_refs: t.tracking_refs || [],
+      });
+    };
+    const draw = () => {
+      const q = norm(input.value);
+      const hits = q ? parcels.filter((p) => p.hay.includes(q)) : parcels;
+      list.replaceChildren();
+      if (!parcels.length) {
+        list.append(el("p", { class: "meta", style: "margin-top:12px" },
+          "Nothing on the road — arrivals bought elsewhere book in via " +
+          "Receive stock…"));
+      } else if (!hits.length) {
+        list.append(el("p", { class: "meta", style: "margin-top:12px" },
+          "No inbound parcel matches that — it may already be received, " +
+          "or the tracking poll hasn't seen its waybill yet."));
+      }
+      for (const { t } of hits) {
+        list.append(el("div",
+          { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+          el("span", { class: "meta", style: "flex:1;min-width:0" },
+            el("span", { style: "font-weight:650;color:var(--ink)" },
+              (t.tracking_refs || []).length
+                ? `🏷 ${t.tracking_refs.join(", ")}`
+                : "🏷 no waybill yet"),
+            el("br", {}),
+            `${t.title || t.asin || t.intent_id} ×${t.quantity}` +
+            (t.eta_at ? ` · ETA ${fmtDate(t.eta_at)}` : "") +
+            ((t.ae_order_ids || []).length ? ` · AE ${t.ae_order_ids.join(", ")}` : "")),
+          el("button", { class: "b sm pri", onclick: () => receive(t) },
+            "Mark received…")));
+      }
+      return hits.length;
+    };
+    input.addEventListener("input", draw);
+
+    /* Photo path: <input capture> opens the camera straight from the
+       browser (Android Chrome); ignore sub-6-char codes — labels carry
+       small hub/routing barcodes that would substring-match everything. */
+    const snap = el("input", { type: "file", accept: "image/*",
+                               capture: "environment", style: "display:none" });
+    let scanBtn = null;
+    if ("BarcodeDetector" in window) {
+      scanBtn = el("button", { class: "b sm line", style: "white-space:nowrap" },
+        "📷 Scan label");
+      scanBtn.addEventListener("click", () => { snap.value = ""; snap.click(); });
+      snap.addEventListener("change", async () => {
+        const file = snap.files && snap.files[0];
+        if (!file) return;
+        status.textContent = "Reading barcodes…";
+        try {
+          const bitmap = await createImageBitmap(file);
+          const codes = await new BarcodeDetector().detect(bitmap);
+          const values = [...new Set(codes.map((c) => norm(c.rawValue)))]
+            .filter((v) => v.length >= 6);
+          if (!values.length) {
+            status.textContent = "No barcode readable — try closer and " +
+              "flatter, or type the reference off the label.";
+            return;
+          }
+          /* one label carries several codes (waybill, AE order, customs);
+             a scanned code can also be longer than the stored ref */
+          const hit = values.find((v) => parcels.some((p) => p.hay.includes(v)))
+            || values.find((v) => parcels.some((p) => p.hay.split(" ")
+              .some((h) => h.length >= 6 && v.includes(h))));
+          input.value = hit || values[0];
+          const n = draw();
+          status.textContent = n
+            ? `Scanned ${values.join(", ")} — ${n === 1
+                ? "that's the parcel below."
+                : `${n} possible parcels below.`}`
+            : `Scanned ${values.join(", ")} — no inbound parcel matches.`;
+        } catch (e) {
+          status.textContent = `Scan failed: ${e.message} — type the reference instead.`;
+        }
+      });
+    }
+
+    draw();
+    openModal(
+      el("h3", {}, "Find parcel — receive by label"),
+      el("p", { class: "meta", style: "margin-top:8px" },
+        "Match the box in your hand: type any part of the waybill on the " +
+        "label" + (scanBtn ? ", or photograph its barcode" : "") +
+        " — Mark received books it in."),
+      el("div", { style: "display:flex;align-items:center;gap:8px;margin-top:12px" },
+        input, scanBtn, snap),
+      list,
+      status,
+      el("button", { class: "b wide", style: "margin-top:14px",
+        onclick: () => modalEl().close() }, "Close"));
   });
 }
 
@@ -1036,6 +1169,10 @@ function stockRow(r, m) {
       : el("span", { class: "hint" }, "🚚 in transit");
   }
   const sub = [];
+  /* Waybills of everything inbound for this SKU — the reference on the
+     parcel label (ZA…R), so a box in hand matches its row at a glance. */
+  const refs = inbound.flatMap((t) => t.tracking_refs || []);
+  if (refs.length) sub.push(`🏷 ${refs.join(" · ")}`);
   if (r.manual) sub.push(`📦 manual stock${r.supplier ? ` — ${r.supplier}` : ""}`);
   if (r.velocity != null) sub.push(`sells ≈${fmtNum(Math.round(r.velocity))}/mo`);
   if (r.group === "restock" && r.suggestQty) {
