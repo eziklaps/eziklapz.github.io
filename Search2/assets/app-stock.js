@@ -41,6 +41,7 @@ function stockModel() {
   const row = (asin) => rows[asin] ??= {
     asin, title: null, home: 0, road: 0, tkl: tkStock[asin] ?? null,
     locs: {}, value: 0, received_at: null, product: byAsin[asin] || null,
+    maxSendable: null,
   };
   for (const h of stock.on_hand || []) {
     const r = row(h.asin);
@@ -54,6 +55,12 @@ function stockModel() {
        exists to reorder through — the row says who supplied it instead. */
     r.manual = h.manual || r.manual;
     r.supplier = h.supplier || r.supplier;
+    /* Portal max sendable — typed off the Takealot booking screen and
+       remembered server-side; null = never captured (or cleared). */
+    r.maxSendable = h.max_sendable != null ? h.max_sendable : null;
+    /* Catalog shipped-package figures — the booking modal's box prefill. */
+    r.packageWeight = h.package_weight_kg || null;
+    r.packageDims = h.package_dims_cm || null;
   }
   for (const t of transit) {
     if (!t.asin) continue;
@@ -672,7 +679,146 @@ function renderStockDesk(root) {
   }
   root.append(movesPanel);
 
+  renderSendAdvisor(root, m);
   renderCourierPanel(root, m);
+}
+
+/* ----- send-advisor: what should leave the house, and why -----
+   One row per stocked LIVE SKU and channel. Amazon: send everything
+   sellable — FBA is free until 31 Mar 2027 and inbound is 90% off until
+   31 Dec 2026, so home units earn nothing that the FC pool wouldn't.
+   Takealot: bounded by the portal's max sendable (a per-SKU number that
+   exists ONLY on the portal booking screen — typed here once, remembered
+   server-side) and by ~35 days of cover (storage is free below 35d).
+   The suggestion is ADVISORY: packed quantities come from the PO the
+   portal booking issues, never from this panel. */
+function sendAdvice(m) {
+  const dests = (m.courier || {}).destinations || [];
+  const destFor = (channel) => {
+    const lanes = dests.filter((d) => d.channel === channel);
+    return lanes.find((d) => d.ready) || lanes[0] || null;
+  };
+  const advice = [];
+  for (const r of m.rows) {
+    const home = (r.locs || {}).home || 0;
+    const p = r.product;
+    if (home <= 0 || !p) continue;
+    /* what could leave: home units not spoken for by open MFN orders
+       or boxes sitting in returns */
+    const sendable = Math.max(0, Math.min(home, r.available));
+    if (p.listing && p.listing.state === "live" && sendable > 0) {
+      advice.push({
+        r, channel: "amazon", dest: destFor("amazon"), qty: sendable,
+        why: "FBA free until 31 Mar 2027, inbound 90% off — send " +
+          "everything sellable" +
+          (r.mfnOpen ? ` (${r.mfnOpen} held for open MFN orders)` : "") +
+          (r.returns ? ` (${r.returns} in returns held back)` : ""),
+      });
+    }
+    if (p.takealot && p.takealot.state === "live") {
+      const daily = r.velocity ? r.velocity / 30 : null;
+      const atDc = Math.max(r.tkl || 0, 0);
+      let qty = sendable;
+      const why = [];
+      if (daily) {
+        const coverTarget = Math.max(0, Math.ceil(daily * 35) - atDc);
+        qty = Math.min(qty, coverTarget);
+        why.push(`35d cover ≈ ${Math.ceil(daily * 35)}u minus ${atDc} ` +
+          "at the DC (storage free ≤35d cover)");
+      } else {
+        why.push("no sales history yet — storage free ≤35d cover, start small");
+      }
+      if (r.maxSendable != null) {
+        qty = Math.min(qty, r.maxSendable);
+        why.push(`portal max sendable ${r.maxSendable}`);
+      } else {
+        qty = Math.min(qty, 5);
+        why.push("portal max unknown — new offers usually cap at 5; " +
+          "type it in from the portal booking screen");
+      }
+      advice.push({
+        r, channel: "takealot", dest: destFor("takealot"), qty,
+        why: why.join(" · "), askMax: true,
+      });
+    }
+  }
+  return advice;
+}
+
+function maxSendableInput(r, status) {
+  const input = el("input", {
+    type: "number", class: "in", min: "0", max: "9999",
+    style: "width:70px", placeholder: "max",
+    value: r.maxSendable != null ? String(r.maxSendable) : "",
+  });
+  const save = el("button", {
+    class: "b sm line",
+    onclick: () => withToken(() => {
+      const raw = input.value.trim();
+      const value = raw === "" ? null : Math.round(Number(raw));
+      if (value != null && !(value >= 0 && value <= 9999)) {
+        if (status) status.textContent = "Max sendable must be 0–9999.";
+        return;
+      }
+      busAct(`max sendable ${r.asin}`, (doc) => {
+        const bucket = (doc.stock ??= {});
+        prunePush(bucket, "max_sendable", {
+          asin: r.asin, value, requested_at: new Date().toISOString(),
+        }, 2);
+      }, status,
+        "✅ Saved — the advisor and the booking clamp pick it up on the " +
+        "next publish (~30s while 'serve' is up).");
+    }),
+  }, "Save");
+  return el("span", { style: "white-space:nowrap" },
+    input, " ", save);
+}
+
+function renderSendAdvisor(root, m) {
+  const advice = sendAdvice(m);
+  if (!advice.length) return; // nothing stocked + live — no advice to give
+  const panel = panelEl("Send to warehouse — advisor", {
+    right: "suggestions only — the PO from the portal booking decides " +
+      "what gets packed",
+  });
+  const status = statusLine();
+  const groups = new Map();
+  for (const a of advice) {
+    const key = a.dest ? a.dest.key : `${a.channel}-none`;
+    if (!groups.has(key)) groups.set(key, { dest: a.dest, channel: a.channel, rows: [] });
+    groups.get(key).rows.push(a);
+  }
+  for (const g of groups.values()) {
+    const label = g.dest ? g.dest.label
+      : (g.channel === "amazon" ? "Amazon FC" : "Takealot DC");
+    const bookable = g.rows.filter((a) => a.qty > 0);
+    const units = bookable.reduce((s, a) => s + a.qty, 0);
+    const head = el("div", { class: "groupline", style: "display:flex;align-items:center;gap:10px" },
+      el("span", { style: "flex:1" },
+        `${label} · ${bookable.length} SKU${bookable.length === 1 ? "" : "s"} · ${units} unit${units === 1 ? "" : "s"} suggested`),
+      g.dest && g.dest.ready && units
+        ? el("button", {
+            class: "b sm pri",
+            onclick: () => bookCourierModal(m, {
+              dest: g.dest.key,
+              items: bookable.map((a) => ({ asin: a.r.asin, quantity: a.qty })),
+            }),
+          }, "Book run…")
+        : el("span", { class: "hint" },
+            g.dest && !g.dest.ready ? "address unconfirmed — Edit destinations…"
+            : units ? "" : "nothing to send"));
+    panel.append(head);
+    for (const a of g.rows) {
+      panel.append(el("div", { class: "flowrow", style: "align-items:center" },
+        el("span", { style: "flex:1;min-width:0" },
+          el("span", { style: "font-weight:600" },
+            `${a.r.title || a.r.asin} — send ${a.qty}`),
+          el("span", { class: "rowsub", style: "display:block" }, a.why)),
+        a.askMax ? maxSendableInput(a.r, status) : null));
+    }
+  }
+  panel.append(status);
+  root.append(panel);
 }
 
 /* ----- courier panel: house → DC runs on TCG (Shiplogic API) -----
@@ -684,11 +830,44 @@ const COURIER_STATUS_TONE = {
   delivered: "ok", cancelled: "mute", quoted: "mute", error: "bad",
   "returned-to-sender": "bad", undeliverable: "bad",
 };
+/* The run's story at a glance: two ticks are hands-on (packed, labels
+   — they persist server-side per run), the rest derive from fields the
+   doc already carries. null = nothing to step (quotes, dead runs). */
+function runSteps(s) {
+  if (s.quote_only || ["error", "cancelled"].includes(s.status)) return null;
+  const external = s.carrier === "external";
+  const checks = s.checks || {};
+  const preCollection = ["submitted", "collection-assigned",
+                         "collection-unassigned", "external"].includes(s.status);
+  const steps = [
+    { key: "paper", label: s.fba_ref ? "FBA ref" : "PO",
+      done: !!(s.po_number || s.fba_ref) },
+    { key: "packed", label: "packed",
+      done: !!(checks.packed || {}).done, manual: true },
+    { key: "labels", label: "labels",
+      done: !!(checks.labels || {}).done, manual: true },
+  ];
+  if (!external) {
+    steps.push({ key: "collected", label: "collected", done: !preCollection });
+  }
+  steps.push(
+    { key: "delivered", label: "delivered", done: s.status === "delivered" },
+    { key: "checked", label: "checked in", done: !!s.movements_recorded_at });
+  return steps;
+}
+
 function renderCourierPanel(root, m) {
   const c = m.courier;
   if (!c) return; // pre-upgrade payload — serve restart pending
+  const extLink = el("a", {
+    onclick: () => externalRunModal(m), style: "cursor:pointer",
+  }, "External run…");
+  const destLink = el("a", {
+    onclick: () => editDestinationsModal(m), style: "cursor:pointer",
+  }, "Destinations…");
   const right = !c.configured
-    ? el("span", { class: "st warn" }, "TCG_API_KEY not set")
+    ? el("span", {}, el("span", { class: "st warn" }, "TCG_API_KEY not set"),
+        " · ", extLink, " · ", destLink)
     : el("span", {},
         c.balance != null
           ? el("span", { class: c.low_balance ? "st bad" : "" },
@@ -697,7 +876,8 @@ function renderCourierPanel(root, m) {
         " · ",
         el("a", {
           onclick: () => bookCourierModal(m), style: "cursor:pointer",
-        }, "Book courier…"));
+        }, "Book courier…"),
+        " · ", extLink, " · ", destLink);
   const panel = panelEl("Courier — DC runs", { right });
   if (c.auth_failed_at) {
     panel.append(el("div", { class: "hint", style: "color:var(--bad)" },
@@ -718,8 +898,12 @@ function renderCourierPanel(root, m) {
         el("th", {}, "When"), el("th", {}, "Run"), el("th", {}, "Status"),
         el("th", { class: "r" }, "Rate"), el("th", {}, "")));
     for (const s of ships) {
-      const what = s.asin ? `${s.quantity || 1}× ${s.asin}` : (s.note || "parcels");
+      const what = (s.items || []).length
+        ? s.items.map((i) => `${i.quantity}× ${i.asin}`).join(" + ")
+        : s.asin ? `${s.quantity || 1}× ${s.asin}` : (s.note || "parcels");
       const sub = [];
+      if (s.po_number) sub.push(`PO ${s.po_number}`);
+      if (s.fba_ref) sub.push(`FBA ${s.fba_ref}`);
       if (s.tracking_reference) sub.push(s.tracking_reference);
       if (s.quote_only && (s.rates || []).length) {
         sub.push((s.rates || []).map((r) => `${r.code} ${fmtR(r.rate)}`).join(" · "));
@@ -738,12 +922,20 @@ function renderCourierPanel(root, m) {
           href: s.label_url, target: "_blank", class: "b sm line",
         }, "Label"));
       } else if (s.tracking_reference && !s.quote_only
+                 && s.carrier !== "external"
                  && !["cancelled", "error"].includes(s.status)) {
         actions.append(el("button", {
           class: "b sm line",
           onclick: () => courierAct(`label ${s.id}`,
             { id: s.id, relabel: true }),
         }, "Get label"));
+      }
+      if (s.carrier === "external" && s.status === "external") {
+        actions.append(el("button", {
+          class: "b sm pri", style: "margin-left:6px",
+          onclick: () => courierAct(`delivered ${s.id}`,
+            { id: s.id, delivered: true }),
+        }, "Mark delivered"));
       }
       if (s.cancellable) {
         actions.append(el("button", {
@@ -752,13 +944,36 @@ function renderCourierPanel(root, m) {
             { id: s.id, cancel: true }),
         }, "Cancel"));
       }
+      /* stepper: ☐ chips are the hands-on ticks — click to (un)tick */
+      const steps = runSteps(s);
+      let stepsLine = null;
+      if (steps) {
+        stepsLine = el("div", { class: "rowsub", style: "margin-top:3px" });
+        steps.forEach((st, i) => {
+          if (i) stepsLine.append(" › ");
+          if (st.manual) {
+            stepsLine.append(el("a", {
+              style: "cursor:pointer" + (st.done ? "" : ";font-weight:600"),
+              title: st.done ? "click to untick" : "click to tick",
+              onclick: () => courierAct(
+                `${st.label} ${st.done ? "untick" : "tick"} ${s.id}`,
+                { id: s.id, check: st.key, done: !st.done }),
+            }, `${st.done ? "✓" : "☐"} ${st.label}`));
+          } else {
+            stepsLine.append(el("span",
+              { style: st.done ? "" : "color:var(--muted)" },
+              `${st.done ? "✓" : "○"} ${st.label}`));
+          }
+        });
+      }
       t.append(el("tr", {},
         el("td", { style: "white-space:nowrap;color:var(--ink2)" },
           fmtDate(s.booked_at || s.created_at)),
         el("td", { class: "t" },
           el("div", { class: "rowtitle" },
-            `${s.quote_only ? "💬 quote" : "🚚"} ${s.dest_label || s.dest} — ${what}`),
-          sub.length ? el("div", { class: "rowsub" }, sub.join(" · ")) : null),
+            `${s.quote_only ? "💬 quote" : s.carrier === "external" ? "🚛 TFS/ext" : "🚚"} ${s.dest_label || s.dest} — ${what}`),
+          sub.length ? el("div", { class: "rowsub" }, sub.join(" · ")) : null,
+          stepsLine),
         el("td", {}, chip),
         el("td", { class: "r" }, s.rate != null ? fmtR(s.rate)
           : el("span", { style: "color:var(--muted)" }, "—")),
@@ -767,9 +982,11 @@ function renderCourierPanel(root, m) {
     panel.append(el("div", { class: "scroll-x" }, t));
   }
   panel.append(el("div", { class: "hint", style: "margin-top:8px" },
-    "collection is next business day (LOF cutoff 14:00) · a delivered run " +
-    "with an ASIN moves those units home → DC in the log automatically · " +
-    "spend posts to Books (Freight & clearing)"));
+    "collection is next business day (LOF cutoff 14:00) · Takealot wants " +
+    "the portal booking confirmed ≥48h before the due date · a delivered " +
+    "run moves its whole manifest home → DC in the log automatically · " +
+    "spend posts to Books (Freight & clearing) · eyeball the first live " +
+    "waybill: the PO must show on it"));
   root.append(panel);
 }
 
@@ -800,7 +1017,7 @@ function courierEstimate(c, destKey, level) {
   return null;
 }
 
-function bookCourierModal(m) {
+function bookCourierModal(m, prefill) {
   withToken(() => {
     const c = m.courier || {};
     const dests = (c.destinations || []);
@@ -808,11 +1025,15 @@ function bookCourierModal(m) {
     const modeSel = el("select", { class: "in" },
       el("option", { value: "quote", selected: "" }, "Quote only (free)"),
       el("option", { value: "book" }, "Book collection"));
+    const preDest = prefill && prefill.dest;
     const destSel = el("select", { class: "in" },
       ...dests.map((d, i) => el("option", {
-        value: d.key, ...(i === 0 ? { selected: "" } : {}),
+        value: d.key,
+        ...((preDest ? d.key === preDest : i === 0) ? { selected: "" } : {}),
         ...(d.ready ? {} : { disabled: "" }),
       }, d.label + (d.ready ? "" : " — address unconfirmed"))));
+    const destChannel = () =>
+      (dests.find((x) => x.key === destSel.value) || {}).channel;
     const destNote = el("div", { class: "hint" });
     const syncNote = () => {
       const d = dests.find((x) => x.key === destSel.value);
@@ -821,16 +1042,163 @@ function bookCourierModal(m) {
     destSel.addEventListener("change", syncNote);
     syncNote();
     const stocked = m.rows.filter((r) => (r.locs || {}).home > 0);
-    const asinSel = el("select", { class: "in" },
-      el("option", { value: "", selected: "" }, "— no ASIN (general run) —"),
-      ...stocked.map((r) => el("option", { value: r.asin },
-        `${r.asin} (${r.locs.home} at home)`)));
-    const qtySel = el("select", { class: "in" },
-      ...Array.from({ length: 20 }, (_, i) =>
-        el("option", { value: i + 1 }, `${i + 1}`)));
-    const weightIn = el("input", { type: "text", class: "in", value: "2", style: "width:70px" });
-    const dimsIn = ["30", "20", "15"].map((v) =>
-      el("input", { type: "text", class: "in", value: v, style: "width:56px" }));
+
+    /* Manifest: one row per SKU in the box(es). A mixed box is normal —
+       every line lands its own stock movement on delivery. */
+    const itemRows = [];
+    const itemsBox = el("div", {});
+    const readItems = () => itemRows
+      .map((it) => ({ asin: it.sel.value,
+                      quantity: Math.round(Number(it.qtyIn.value)) }))
+      .filter((it) => it.asin && it.quantity >= 1);
+    const addItem = (asin, qty) => {
+      const sel = el("select", { class: "in" },
+        el("option", { value: "" }, "— SKU —"),
+        ...stocked.map((r) => el("option", {
+          value: r.asin, ...(r.asin === asin ? { selected: "" } : {}),
+        }, `${r.asin} (${r.locs.home} at home)`)));
+      const qtyIn = el("input", {
+        type: "number", class: "in", value: String(qty || 1),
+        min: "1", max: "999", style: "width:70px",
+      });
+      const item = { sel, qtyIn };
+      const row = el("div",
+        { style: "display:flex;align-items:center;gap:10px;margin-top:8px" },
+        sel, el("span", { class: "meta" }, "×"), qtyIn,
+        el("a", {
+          style: "cursor:pointer;color:var(--muted)",
+          onclick: () => {
+            row.remove();
+            itemRows.splice(itemRows.indexOf(item), 1);
+            syncManifest();
+          },
+        }, "✕"));
+      itemRows.push(item);
+      itemsBox.append(row);
+      sel.addEventListener("change", syncManifest);
+      qtyIn.addEventListener("input", syncManifest);
+    };
+    const manifestNote = el("div", { class: "hint" });
+    /* Paperwork the receiving warehouse reads off the waybill — the DC
+       bounces parcels without their PO; an FC box needs its FBA ref. */
+    const poIn = el("input", {
+      type: "text", class: "in", style: "flex:1",
+      placeholder: "PO number — from the portal replenishment booking",
+    });
+    const fbaIn = el("input", {
+      type: "text", class: "in", style: "flex:1", autocapitalize: "characters",
+      placeholder: "FBA shipment ID — from Send-to-Amazon",
+    });
+    const poRow = el("div",
+      { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+      el("span", { class: "meta", style: "min-width:70px" }, "PO"), poIn);
+    const fbaRow = el("div",
+      { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+      el("span", { class: "meta", style: "min-width:70px" }, "FBA ref"), fbaIn);
+    /* Boxes: one row per physical parcel. Weight prefills from the
+       catalog's shipped-package figures for whatever the manifest says
+       is inside — typing any box figure takes over from the estimate. */
+    const boxRows = [];
+    const boxesBox = el("div", {});
+    let boxesTouched = false;
+    const addBox = (weight, dims) => {
+      const weightIn = el("input", {
+        type: "text", class: "in", value: weight || "2", style: "width:70px",
+      });
+      const dimsIn = (dims || ["30", "20", "15"]).map((v) =>
+        el("input", { type: "text", class: "in", value: v, style: "width:56px" }));
+      const box = { weightIn, dimsIn };
+      const row = el("div",
+        { style: "display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap" },
+        weightIn, el("span", { class: "meta" }, "kg ·"),
+        dimsIn[0], el("span", { class: "meta" }, "×"),
+        dimsIn[1], el("span", { class: "meta" }, "×"),
+        dimsIn[2], el("span", { class: "meta" }, "cm"),
+        el("a", {
+          style: "cursor:pointer;color:var(--muted)",
+          onclick: () => {
+            row.remove();
+            boxRows.splice(boxRows.indexOf(box), 1);
+            boxesTouched = true;
+            syncManifest();
+          },
+        }, "✕"));
+      weightIn.addEventListener("input", () => { boxesTouched = true; syncManifest(); });
+      for (const d of dimsIn) d.addEventListener("input", () => { boxesTouched = true; });
+      boxRows.push(box);
+      boxesBox.append(row);
+      return box;
+    };
+    const boxNote = el("div", { class: "hint" });
+    const syncManifest = () => {
+      const channel = destChannel();
+      poRow.style.display = channel === "takealot" ? "flex" : "none";
+      fbaRow.style.display = channel === "amazon" ? "flex" : "none";
+      const items = readItems();
+      const units = items.reduce((s, it) => s + it.quantity, 0);
+      const over = items.filter((it) => {
+        const r = stocked.find((x) => x.asin === it.asin);
+        return r && it.quantity > r.locs.home;
+      });
+      const bits = [];
+      if (units) bits.push(`${units} unit${units === 1 ? "" : "s"} across ${items.length} SKU${items.length === 1 ? "" : "s"}`);
+      if (units >= 50 && channel === "takealot") {
+        bits.push("⚠ Takealot wants <50 units per shipment — split the booking");
+      }
+      for (const it of over) bits.push(`⚠ ${it.asin}: only ${(stocked.find((x) => x.asin === it.asin) || { locs: {} }).locs.home} at home`);
+      for (const it of clampBreaches(items, channel)) {
+        bits.push(`⛔ ${it.asin}: portal max sendable is ${it.max} — the DC bounces the overage`);
+      }
+      manifestNote.textContent = bits.join(" · ");
+
+      /* weight estimate off catalog package data */
+      const withRow = items.map((it) => ({
+        ...it, r: stocked.find((x) => x.asin === it.asin),
+      }));
+      const known = withRow.filter((it) => it.r && it.r.packageWeight);
+      const est = known.reduce((s, it) => s + it.quantity * it.r.packageWeight, 0);
+      const unknown = withRow.filter((it) => it.r && !it.r.packageWeight);
+      if (!boxesTouched && boxRows.length === 1 && est > 0) {
+        boxRows[0].weightIn.value = String(Math.min(Math.ceil(est * 10) / 10, 50));
+        const dims = items.length === 1 && known.length === 1
+          && known[0].quantity === 1 && known[0].r.packageDims;
+        if (dims && dims.length && dims.width && dims.height) {
+          boxRows[0].dimsIn[0].value = String(Math.ceil(dims.length));
+          boxRows[0].dimsIn[1].value = String(Math.ceil(dims.width));
+          boxRows[0].dimsIn[2].value = String(Math.ceil(dims.height));
+        }
+      }
+      const boxBits = [];
+      if (est > 0) {
+        boxBits.push(`≈${Math.ceil(est * 10) / 10}kg packed (catalog package weights)`);
+      }
+      if (unknown.length) {
+        boxBits.push(`no catalog weight for ${unknown.map((it) => it.asin).join(", ")} — weigh the box`);
+      }
+      if (est > 25) {
+        boxBits.push(`⚠ over 25kg — pack ~${Math.ceil(est / 25)} boxes (+ add box)`);
+      }
+      const declared = boxRows.reduce((s, b) => s + (parseFloat(b.weightIn.value) || 0), 0);
+      if (boxRows.some((b) => parseFloat(b.weightIn.value) > 25)) {
+        boxBits.push("⚠ a box over 25kg is a two-person lift the DC may refuse");
+      }
+      if (est > 0 && declared > 0 && declared < est * 0.7) {
+        boxBits.push(`⚠ boxes declare ${Math.ceil(declared * 10) / 10}kg vs ≈${Math.ceil(est * 10) / 10}kg estimated — under-declaring reprices at the hub`);
+      }
+      boxNote.textContent = boxBits.join(" · ");
+    };
+    /* The manifest CLAMPS to the portal limit: packed quantities come
+       from the PO, and the PO can never exceed max sendable — a line
+       over it is a mistyped manifest, not a judgement call. */
+    const clampBreaches = (items, channel) => {
+      if (channel !== "takealot") return [];
+      return items.map((it) => {
+        const r = stocked.find((x) => x.asin === it.asin);
+        return r && r.maxSendable != null && it.quantity > r.maxSendable
+          ? { asin: it.asin, max: r.maxSendable } : null;
+      }).filter(Boolean);
+    };
+    destSel.addEventListener("change", syncManifest);
     const levelSel = el("select", { class: "in" },
       el("option", { value: "LOF", selected: "" }, "LOF — overnight"),
       el("option", { value: "ECO" }, "ECO — economy road"),
@@ -912,12 +1280,43 @@ function bookCourierModal(m) {
     levelSel.addEventListener("change", syncPreflight);
     capIn.addEventListener("input", syncPreflight);
     syncPreflight();
+    for (const it of (prefill && prefill.items) || []) {
+      addItem(it.asin, it.quantity);
+    }
+    if (!itemRows.length) addItem();
+    addBox();
+    syncManifest();
     const status = statusLine();
     sendBtn.addEventListener("click", () => {
       const booking = modeSel.value === "book";
-      const weight = parseFloat(weightIn.value);
-      if (!(weight > 0 && weight <= 50)) {
-        status.textContent = "Weight must be 0–50 kg.";
+      const parcels = boxRows.map((b) => ({
+        weight_kg: parseFloat(b.weightIn.value),
+        length_cm: parseFloat(b.dimsIn[0].value) || undefined,
+        width_cm: parseFloat(b.dimsIn[1].value) || undefined,
+        height_cm: parseFloat(b.dimsIn[2].value) || undefined,
+      }));
+      if (!parcels.length
+          || parcels.some((p) => !(p.weight_kg > 0 && p.weight_kg <= 50))) {
+        status.textContent = "Every box needs a weight between 0 and 50 kg.";
+        return;
+      }
+      const channel = destChannel();
+      const items = readItems();
+      if (booking && channel === "takealot" && !poIn.value.trim()) {
+        status.textContent = "Takealot DC runs need the PO number — the DC " +
+          "bounces parcels whose waybill doesn't carry it.";
+        return;
+      }
+      if (booking && channel === "amazon" && !fbaIn.value.trim()) {
+        status.textContent = "Amazon FC runs need the FBA shipment ID from " +
+          "Send-to-Amazon as the waybill reference.";
+        return;
+      }
+      const breaches = clampBreaches(items, channel);
+      if (booking && breaches.length) {
+        status.textContent = `${breaches[0].asin} exceeds the portal max ` +
+          `sendable (${breaches[0].max}) — pack what the PO says, or ` +
+          "update the max if the portal moved it.";
         return;
       }
       if (booking && confirmIn.value.trim().toUpperCase() !== "BOOK") {
@@ -931,14 +1330,10 @@ function bookCourierModal(m) {
       }
       const entry = {
         dest: destSel.value,
-        parcels: [{
-          weight_kg: weight,
-          length_cm: parseFloat(dimsIn[0].value) || undefined,
-          width_cm: parseFloat(dimsIn[1].value) || undefined,
-          height_cm: parseFloat(dimsIn[2].value) || undefined,
-        }],
-        asin: asinSel.value || undefined,
-        quantity: asinSel.value ? Number(qtySel.value) : undefined,
+        parcels,
+        items: items.length ? items : undefined,
+        po_number: poIn.value.trim() || undefined,
+        fba_ref: fbaIn.value.trim().toUpperCase() || undefined,
         service_level: levelSel.value,
         note: noteIn.value.trim() || undefined,
         requested_at: new Date().toISOString(),
@@ -964,13 +1359,26 @@ function bookCourierModal(m) {
       el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
         el("span", { class: "meta", style: "min-width:70px" }, "to"), destSel),
       destNote,
-      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
-        el("span", { class: "meta", style: "min-width:70px" }, "what"), asinSel, qtySel),
-      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
-        el("span", { class: "meta", style: "min-width:70px" }, "parcel"),
-        weightIn, el("span", { class: "meta" }, "kg ·"),
-        dimsIn[0], el("span", { class: "meta" }, "×"), dimsIn[1],
-        el("span", { class: "meta" }, "×"), dimsIn[2], el("span", { class: "meta" }, "cm")),
+      el("div", { style: "display:flex;align-items:flex-start;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px;margin-top:8px" }, "manifest"),
+        el("div", { style: "flex:1" },
+          itemsBox,
+          el("a", {
+            style: "cursor:pointer;display:inline-block;margin-top:8px",
+            onclick: () => { addItem(); syncManifest(); },
+          }, "+ add SKU"),
+          manifestNote)),
+      poRow,
+      fbaRow,
+      el("div", { style: "display:flex;align-items:flex-start;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px;margin-top:8px" }, "boxes"),
+        el("div", { style: "flex:1" },
+          boxesBox,
+          el("a", {
+            style: "cursor:pointer;display:inline-block;margin-top:8px",
+            onclick: () => { boxesTouched = true; addBox(); syncManifest(); },
+          }, "+ add box"),
+          boxNote)),
       bookRows,
       noteIn,
       preflight,
@@ -979,6 +1387,232 @@ function bookCourierModal(m) {
         class: "b wide", style: "margin-top:8px",
         onclick: () => modalEl().close(),
       }, "Cancel"),
+      status);
+  });
+}
+
+/* External run: a collection booked OUTSIDE the API — the TFS portal
+   beats TCG 35–50% on Takealot lanes but is portal-only, and a run the
+   desk can't see is a run whose movements and cost silently vanish.
+   Records the manifest + typed cost (posts to Books immediately — the
+   portal already charged it); "Mark delivered" on the runs list moves
+   the stock when it lands. */
+function externalRunModal(m) {
+  withToken(() => {
+    const c = m.courier || {};
+    const dests = c.destinations || [];
+    if (!dests.length) return;
+    const destSel = el("select", { class: "in" },
+      ...dests.map((d, i) => el("option", {
+        value: d.key, ...(i === 0 ? { selected: "" } : {}),
+      }, d.label)));
+    const destChannel = () =>
+      (dests.find((x) => x.key === destSel.value) || {}).channel;
+    const stocked = m.rows.filter((r) => (r.locs || {}).home > 0);
+    const itemRows = [];
+    const itemsBox = el("div", {});
+    const addItem = () => {
+      const sel = el("select", { class: "in" },
+        el("option", { value: "" }, "— SKU —"),
+        ...stocked.map((r) => el("option", { value: r.asin },
+          `${r.asin} (${r.locs.home} at home)`)));
+      const qtyIn = el("input", {
+        type: "number", class: "in", value: "1", min: "1", max: "999",
+        style: "width:70px",
+      });
+      const item = { sel, qtyIn };
+      const row = el("div",
+        { style: "display:flex;align-items:center;gap:10px;margin-top:8px" },
+        sel, el("span", { class: "meta" }, "×"), qtyIn,
+        el("a", {
+          style: "cursor:pointer;color:var(--muted)",
+          onclick: () => {
+            row.remove();
+            itemRows.splice(itemRows.indexOf(item), 1);
+          },
+        }, "✕"));
+      itemRows.push(item);
+      itemsBox.append(row);
+    };
+    addItem();
+    const costIn = el("input", {
+      type: "number", class: "in", min: "0", step: "0.01",
+      placeholder: "cost R", style: "width:110px",
+    });
+    const refIn = el("input", {
+      type: "text", class: "in", style: "flex:1",
+      placeholder: "waybill / booking ref (opt)",
+    });
+    const poIn = el("input", {
+      type: "text", class: "in", style: "flex:1",
+      placeholder: "PO number — from the portal replenishment booking",
+    });
+    const fbaIn = el("input", {
+      type: "text", class: "in", style: "flex:1", autocapitalize: "characters",
+      placeholder: "FBA shipment ID — from Send-to-Amazon",
+    });
+    const poRow = el("div",
+      { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+      el("span", { class: "meta", style: "min-width:70px" }, "PO"), poIn);
+    const fbaRow = el("div",
+      { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+      el("span", { class: "meta", style: "min-width:70px" }, "FBA ref"), fbaIn);
+    const syncPaper = () => {
+      const channel = destChannel();
+      poRow.style.display = channel === "takealot" ? "flex" : "none";
+      fbaRow.style.display = channel === "amazon" ? "flex" : "none";
+    };
+    destSel.addEventListener("change", syncPaper);
+    syncPaper();
+    const noteIn = el("input", {
+      type: "text", class: "in wide", style: "margin-top:10px",
+      placeholder: "note (opt) — e.g. TFS Courier, booked 28 Jul",
+    });
+    const status = statusLine();
+    openModal(
+      el("h3", {}, "External run — booked outside the API"),
+      el("p", { class: "meta" },
+        "For TFS-portal (or any hand-booked) collections: nothing books " +
+        "here — this records the run so the manifest's stock movements " +
+        "and the cost still land. The cost posts to Books now; press " +
+        "Mark delivered on the runs list when the DC signs for it."),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px" }, "to"), destSel),
+      el("div", { style: "display:flex;align-items:flex-start;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px;margin-top:8px" }, "manifest"),
+        el("div", { style: "flex:1" },
+          itemsBox,
+          el("a", {
+            style: "cursor:pointer;display:inline-block;margin-top:8px",
+            onclick: () => addItem(),
+          }, "+ add SKU"))),
+      poRow,
+      fbaRow,
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:70px" }, "paid"), costIn,
+        el("span", { class: "meta" }, "R ·"), refIn),
+      noteIn,
+      el("button", {
+        class: "b pri wide", style: "margin-top:12px",
+        onclick: () => {
+          const items = itemRows
+            .map((it) => ({ asin: it.sel.value,
+                            quantity: Math.round(Number(it.qtyIn.value)) }))
+            .filter((it) => it.asin && it.quantity >= 1);
+          if (!items.length) {
+            status.textContent = "Pick at least one SKU — the movements " +
+              "are the point of recording the run.";
+            return;
+          }
+          const entry = {
+            external: true,
+            dest: destSel.value,
+            items,
+            cost_rand: Number(costIn.value) > 0 ? Number(costIn.value) : undefined,
+            tracking_ref: refIn.value.trim() || undefined,
+            po_number: poIn.value.trim() || undefined,
+            fba_ref: fbaIn.value.trim().toUpperCase() || undefined,
+            note: noteIn.value.trim() || undefined,
+            requested_at: new Date().toISOString(),
+          };
+          busAct("record external run", (doc) => {
+            const bucket = (doc.courier ??= {});
+            prunePush(bucket, "requests", entry, 2);
+          }, status,
+            "✅ Sent — the run shows in the list within ~30s while 'serve' " +
+            "is up; Mark delivered moves the stock when it lands.");
+        },
+      }, "Record run"),
+      el("button", {
+        class: "b wide", style: "margin-top:8px",
+        onclick: () => modalEl().close(),
+      }, "Cancel"),
+      status);
+  });
+}
+
+/* Destinations editor: the registry is code+env, but an address that
+   only arrives mid-flow (Amazon reveals the FC inside Send-to-Amazon)
+   used to need a .env edit + serve restart. Desk edits land in Mongo
+   and win over both; Reset drops the edit so the registry shows through. */
+function editDestinationsModal(m) {
+  withToken(() => {
+    const dests = (m.courier || {}).destinations || [];
+    if (!dests.length) return;
+    const destSel = el("select", { class: "in" },
+      ...dests.map((d, i) => el("option", {
+        value: d.key, ...(i === 0 ? { selected: "" } : {}),
+      }, `${d.label}${d.ready ? "" : " — not bookable"}${d.overridden ? " · desk-edited" : ""}`)));
+    const fields = [
+      ["label", "label"], ["company", "company"],
+      ["street_address", "street"], ["local_area", "suburb"],
+      ["city", "city"], ["zone", "province"], ["code", "postal code"],
+      ["note", "note"],
+    ];
+    const inputs = {};
+    const rows = fields.map(([key, label]) => {
+      inputs[key] = el("input", {
+        type: "text", class: "in", style: "flex:1", placeholder: label,
+      });
+      return el("div",
+        { style: "display:flex;align-items:center;gap:10px;margin-top:8px" },
+        el("span", { class: "meta", style: "min-width:90px" }, label),
+        inputs[key]);
+    });
+    const readyNote = el("div", { class: "hint", style: "margin-top:6px" });
+    const fill = () => {
+      const d = dests.find((x) => x.key === destSel.value) || {};
+      for (const [key] of fields) inputs[key].value = d[key] || "";
+      readyNote.textContent = d.ready
+        ? "✓ bookable — street + postal code on file"
+        : "not bookable yet — a street address and postal code make it so";
+    };
+    destSel.addEventListener("change", fill);
+    fill();
+    const status = statusLine();
+    const send = (entry, label, done) => busAct(label, (doc) => {
+      const bucket = (doc.courier ??= {});
+      prunePush(bucket, "destinations", entry, 2);
+    }, status, done);
+    openModal(
+      el("h3", {}, "Destinations — where runs can go"),
+      el("p", { class: "meta" },
+        "Saved edits apply within ~30s while 'serve' is up and win over " +
+        "the built-in registry and .env — no restart, mid-flow is fine. " +
+        "Check the address against the courier portal's pre-added entry " +
+        "before the first booking to a new one."),
+      el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
+        el("span", { class: "meta", style: "min-width:90px" }, "destination"),
+        destSel),
+      ...rows,
+      readyNote,
+      el("button", {
+        class: "b pri wide", style: "margin-top:12px",
+        onclick: () => {
+          const entry = { key: destSel.value,
+                          requested_at: new Date().toISOString() };
+          for (const [key] of fields) {
+            const value = inputs[key].value.trim();
+            if (value) entry[key] = value;
+          }
+          send(entry, `destination ${destSel.value}`,
+            "✅ Saved — applies within ~30s; re-open this dialog after the " +
+            "next publish to see it echoed back.");
+        },
+      }, "Save destination"),
+      el("button", {
+        class: "b wide", style: "margin-top:8px",
+        onclick: () => send(
+          { key: destSel.value, reset: true,
+            requested_at: new Date().toISOString() },
+          `reset destination ${destSel.value}`,
+          "✅ Reset sent — the built-in/.env registry value shows through " +
+          "after the next publish."),
+      }, "Reset to registry"),
+      el("button", {
+        class: "b wide", style: "margin-top:8px",
+        onclick: () => modalEl().close(),
+      }, "Close"),
       status);
   });
 }
