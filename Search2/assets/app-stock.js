@@ -692,6 +692,12 @@ function renderStockDesk(root) {
    server-side) and by ~35 days of cover (storage is free below 35d).
    The suggestion is ADVISORY: packed quantities come from the PO the
    portal booking issues, never from this panel. */
+/* Takealot runs THREE replenishment DCs and the SLA wants stock in all
+   of them (a customer order from a DC you didn't stock = Auto-IBT,
+   R20+/unit ex VAT). House rule: ≈70% JHB / 30% CPT by demand weight —
+   rebalance here (and add takealot_dbn a share) once its address lands. */
+const TAKEALOT_DC_SPLIT = [["takealot_jhb", 0.7], ["takealot_cpt", 0.3]];
+
 function sendAdvice(m) {
   const dests = (m.courier || {}).destinations || [];
   const destFor = (channel) => {
@@ -706,15 +712,11 @@ function sendAdvice(m) {
     /* what could leave: home units not spoken for by open MFN orders
        or boxes sitting in returns */
     const sendable = Math.max(0, Math.min(home, r.available));
-    if (p.listing && p.listing.state === "live" && sendable > 0) {
-      advice.push({
-        r, channel: "amazon", dest: destFor("amazon"), qty: sendable,
-        why: "FBA free until 31 Mar 2027, inbound 90% off — send " +
-          "everything sellable" +
-          (r.mfnOpen ? ` (${r.mfnOpen} held for open MFN orders)` : "") +
-          (r.returns ? ` (${r.returns} in returns held back)` : ""),
-      });
-    }
+
+    /* Takealot first — it's the demand-gated channel, so it claims its
+       bounded allocation and Amazon gets the remainder (a SKU live on
+       both channels must not be told "send everything" twice). */
+    let takealotQty = 0;
     if (p.takealot && p.takealot.state === "live") {
       const daily = r.velocity ? r.velocity / 30 : null;
       const atDc = Math.max(r.tkl || 0, 0);
@@ -736,10 +738,55 @@ function sendAdvice(m) {
         why.push("portal max unknown — new offers usually cap at 5; " +
           "type it in from the portal booking screen");
       }
-      advice.push({
-        r, channel: "takealot", dest: destFor("takealot"), qty,
-        why: why.join(" · "), askMax: true,
-      });
+      takealotQty = qty;
+      /* split across the DCs the house rule names; a lane without a
+         confirmed address drops out and its share folds into the rest */
+      const lanes = TAKEALOT_DC_SPLIT
+        .map(([key, share]) => ({ dest: dests.find((d) => d.key === key), share }))
+        .filter((x) => x.dest && x.dest.ready);
+      if (lanes.length >= 2 && qty >= 2) {
+        const total = lanes.reduce((s, x) => s + x.share, 0);
+        let left = qty;
+        lanes.forEach((lane, i) => {
+          const part = i === lanes.length - 1
+            ? left : Math.round(qty * lane.share / total);
+          left -= part;
+          if (part > 0) {
+            advice.push({
+              r, channel: "takealot", dest: lane.dest, qty: part,
+              why: `≈${Math.round(lane.share * 100)}% of ${qty} — the SLA ` +
+                "wants every DC stocked (Auto-IBT R20+/unit otherwise) · " +
+                why.join(" · "),
+              askMax: i === 0,
+            });
+          }
+        });
+      } else {
+        advice.push({
+          r, channel: "takealot",
+          qty,
+          dest: (lanes[0] || {}).dest || destFor("takealot"),
+          why: why.join(" · ")
+            + (lanes.length < 2 && TAKEALOT_DC_SPLIT.length >= 2
+               ? " · single DC only — confirm the other DC's address to split 70/30"
+               : ""),
+          askMax: true,
+        });
+      }
+    }
+
+    if (p.listing && p.listing.state === "live") {
+      const qty = Math.max(0, sendable - takealotQty);
+      if (qty > 0) {
+        advice.push({
+          r, channel: "amazon", dest: destFor("amazon"), qty,
+          why: "FBA free until 31 Mar 2027, inbound 90% off — send " +
+            "everything sellable" +
+            (takealotQty ? ` after Takealot's ${takealotQty}` : "") +
+            (r.mfnOpen ? ` (${r.mfnOpen} held for open MFN orders)` : "") +
+            (r.returns ? ` (${r.returns} in returns held back)` : ""),
+        });
+      }
     }
   }
   return advice;
