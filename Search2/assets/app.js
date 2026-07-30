@@ -181,6 +181,7 @@ function thumbEl(p, lg) {
 /* ---------- shared intent-state vocabulary ---------- */
 
 const INTENT_LABEL = {
+  proposed: "🤖 proposed — approve?",
   pending: "queued", ready: "payload ready", validated: "validated",
   submitting: "submitting…", submitted: "submitted", live: "🟢 live",
   loadsheet: "on the loadsheet", offer_ready: "priced — offer queued",
@@ -189,6 +190,7 @@ const INTENT_LABEL = {
   bus: "🕐 on the bus",
 };
 const INTENT_TONE = {
+  proposed: "warn",
   pending: "mute", ready: "mute", validated: "ok", submitting: "warn",
   submitted: "ok", live: "ok", loadsheet: "warn", offer_ready: "ok",
   blocked_exemption: "warn", fix_required: "hot", needs_review: "bad",

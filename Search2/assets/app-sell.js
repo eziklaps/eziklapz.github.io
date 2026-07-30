@@ -253,6 +253,11 @@ function intentReasonEl(it) {
   const wrap = (tone, ...kids) => el("div", {
     class: `st ${tone}`, style: "font-size:11px;margin-top:3px;white-space:normal",
   }, ...kids);
+  if (it.state === "proposed") {
+    return wrap("warn",
+      "dual-listing twin: stock from an Amazon order can also sell here — " +
+      "Approve queues it, Dismiss retires it for good");
+  }
   if (it.state === "blocked_exemption") {
     const ex = (todos.exemptions || [])
       .find((x) => (x.asins || []).includes(it.asin));
@@ -299,7 +304,8 @@ function intentTableEl(intents, channel, statusEl) {
       el("td", { class: "t" },
         el("span", { class: "rowtitle", title: it.id }, it.title || it.asin || it.id)),
       el("td", { class: "t" }, stateWord(it.state),
-        PARKED.has(it.state) ? intentReasonEl(it) : null),
+        PARKED.has(it.state) || it.state === "proposed"
+          ? intentReasonEl(it) : null),
       el("td", {}, it.list_price != null ? fmtR(it.list_price) : "—"),
       channel === "takealot"
         ? el("td", {}, it.takealot_margin_percent != null
@@ -307,7 +313,23 @@ function intentTableEl(intents, channel, statusEl) {
         : estMarginCell(it.asin),
       el("td", { class: "t", style: "color:var(--muted);font-size:12px" }, fmtAgo(it.received_at)),
       el("td", { class: "t", style: "color:var(--ink2);font-size:12px" }, it.note ?? ""),
-      el("td", { class: "r t" }, PARKED.has(it.state)
+      el("td", { class: "r t" }, it.state === "proposed"
+        ? el("span", {},
+            el("button", {
+              class: "b sm",
+              onclick: () => busAct(`approve ${it.asin}`, (doc) => prunePush(doc, "listings", {
+                asin: it.asin, channel, approve: true,
+                requested_at: new Date().toISOString(),
+              }), statusEl),
+            }, "Approve"), " ",
+            el("button", {
+              class: "b sm line",
+              onclick: () => busAct(`dismiss ${it.asin}`, (doc) => prunePush(doc, "listings", {
+                asin: it.asin, channel, cancel: true,
+                requested_at: new Date().toISOString(),
+              }), statusEl),
+            }, "Dismiss"))
+        : PARKED.has(it.state)
         ? el("button", {
             class: "b sm line",
             onclick: () => busAct(`requeue ${it.asin}`, (doc) => prunePush(doc, "listings", {
