@@ -800,6 +800,72 @@ function needsYouItems() {
   return items;
 }
 
+/* The propose queue (Phase 5): every 'proposed' card the machine minted,
+   across payloads — reorders (buyer products' newest intent), Takealot
+   twins and wide listings (seller intents). Today renders these with the
+   SAME Approve/Dismiss bus claims the desks use; the desk buttons stay. */
+function proposalQueueItems() {
+  const items = [];
+  for (const p of (S.buyer || {}).products || []) {
+    if (p.order?.state !== "proposed") continue;
+    items.push({
+      kind: "reorder",
+      title: p.title || p.asin,
+      sub: p.order.note || "auto-reorder proposal",
+      figure: p.order.quantity ? `${p.order.quantity} units` : null,
+      action: () => proposalActions(p.order),
+      open: () => setDesk("buy", {
+        buyTab: "ordered", buySel: p.asin, focus: p.asin }),
+    });
+  }
+  const seller = S.seller || {};
+  for (const [channel, data] of [["amazon", seller.amazon],
+                                 ["takealot", seller.takealot]]) {
+    for (const it of (data || {}).intents || []) {
+      if (it.state !== "proposed") continue;
+      const wide = it.source === "wide_listing";
+      items.push({
+        kind: wide ? "wide listing" : "Takealot twin",
+        title: it.title || it.asin || it.id,
+        sub: it.note || (wide
+          ? "a brand-new Amazon page for a no-counterpart Ali winner"
+          : "stock from an Amazon order can also sell on Takealot"),
+        figure: it.list_price != null ? fmtR(it.list_price) : null,
+        action: () => listingProposalActions(it, channel),
+        open: () => setDesk("sell", { sellTab: channel, focus: it.asin }),
+      });
+    }
+  }
+  return items;
+}
+
+/* Approve/Dismiss for a proposed listing intent — the same bus entries
+   the Sell desk table commits, with the one-press sent-chip guard. */
+function listingProposalActions(it, channel) {
+  const wrap = el("span", { style: "display:inline-flex;gap:6px;align-items:center" });
+  const claim = (label, entry, chip) => (ev) => {
+    ev.stopPropagation();
+    busAct(`${label} ${it.asin}`, (doc) => prunePush(doc, "listings", {
+      asin: it.asin, channel, ...entry,
+      requested_at: new Date().toISOString(),
+    }), null, "");
+    wrap.replaceChildren(el("span", { class: "st warn" }, chip));
+  };
+  wrap.append(
+    el("button", {
+      class: "b sm pri",
+      title: "approving hands it to the normal prepare → validate → " +
+             "submit machinery (exemption/compliance gates still bind)",
+      onclick: claim("approve proposal", { approve: true }, "🕐 approval sent"),
+    }, "Approve"),
+    el("button", {
+      class: "b sm",
+      title: "dismisses this proposal for good — it is never re-proposed",
+      onclick: claim("dismiss proposal", { cancel: true }, "🕐 dismissal sent"),
+    }, "Dismiss"));
+  return wrap;
+}
+
 /* ---------- topbar + rail ---------- */
 
 function renderTopbar() {
@@ -858,7 +924,7 @@ function agoMinutes(iso) {
 
 function railBadges() {
   const a = S.admin || {};
-  const needs = needsYouItems().length;
+  const needs = needsYouItems().length + proposalQueueItems().length;
   const winners = ((S.buyer || {}).products || []).length;
   const stock = typeof renderStockBadge === "function" ? renderStockBadge() : 0;
   const seller = S.seller || {};

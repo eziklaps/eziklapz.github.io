@@ -65,6 +65,8 @@ function renderMachineDesk(root) {
   root.append(kpis);
 
   root.append(runControlPanel(a));
+  const ap = autonomyPanel(a);
+  if (ap) root.append(ap);
   root.append(lanesGrid(a));
 
   /* backlog + batches | keywords + sweep + webhooks */
@@ -175,6 +177,95 @@ function runControlPanel(a) {
       ? `last ack ${fmtAgo(ack.applied_at)} (run: ${ack.run ?? "—"})`
       : "no ack yet — is a run (or 'serve') active?")),
     status);
+  return p;
+}
+
+/* ---------- the autonomy dial (Phase 5) ---------- */
+
+const AUTONOMY_SUBS = [
+  ["reorder", "Reorder", (c) =>
+    `up to ${c.max_per_pass ?? 5} proposals every ${c.pass_hours ?? 6}h · ` +
+    "proven sellers, cheap freight · AUTO self-approves into the normal " +
+    "verify → affordability → place path (payment stays yours)"],
+  ["repricer", "Repricer", (c) =>
+    `pass every ${Math.round((c.pass_seconds ?? 1800) / 60)}min · ` +
+    "floor-guarded, capped daily · PROPOSE refreshes decisions without " +
+    "moving prices; AUTO moves them"],
+  ["twins", "Takealot twins", () =>
+    "each Amazon order proposes its Takealot twin · AUTO queues twins " +
+    "itself (barcode/loadsheet machinery unchanged)"],
+  ["wide_listings", "Wide listings", (c) =>
+    `daily propose pass (spends AE + SP-API probes) · pilot ` +
+    `${c.in_flight ?? 0}/${c.pilot_cap ?? 50} in flight · kill rule and ` +
+    "8571 backoff bind in every position"],
+];
+
+const AUTONOMY_CONFIRM = {
+  propose: {
+    wide_listings: "Put wide listings on the daily PROPOSE cadence? Each " +
+      "pass probes AliExpress + SP-API for surviving candidates (capped), " +
+      "and proposals land on Today for your Approve.",
+  },
+  auto: {
+    reorder: "Set reorder to AUTO? Fresh proposals approve THEMSELVES " +
+      "into the order path — affordability gate, daily budget and margin " +
+      "floor still bind, and payment stays a human press.",
+    repricer: "Set the repricer to AUTO? Prices start moving — floor-" +
+      "guarded, inside the daily caps.",
+    twins: "Set twins to AUTO? New Amazon orders queue their Takealot " +
+      "twin without waiting for Approve.",
+    wide_listings: "Set wide listings to AUTO? Daily proposals queue " +
+      "themselves toward validation preview — pilot cap and the zero-" +
+      "sale kill rule still bind.",
+  },
+};
+
+function autonomyPanel(a) {
+  const auto = a.autonomy;
+  if (!auto) return null; // payload predates the dial (serve not restarted)
+  const status = statusLine();
+  const p = panelEl("Autonomy", {
+    soft: "— off = still · propose = cards wait for you · auto = " +
+          "self-approving (hard gates always bind)",
+  });
+  for (const [key, label, describe] of AUTONOMY_SUBS) {
+    const cfg = auto[key] || {};
+    // A press still riding the bus wins the display (switch contract).
+    const press = ((S.commands || {}).autonomy || {})[key] || null;
+    const pending = press && press.requested_at
+      && press.requested_at !== cfg.requested_at ? press : null;
+    const mode = pending ? pending.mode : (cfg.mode || "off");
+    const seg = el("span", { class: "chiprow", style: "display:inline-flex;gap:0" });
+    for (const m of ["off", "propose", "auto"]) {
+      seg.append(el("button", {
+        class: `b xs ${m === mode ? (m === "auto" ? "danger" : "pri") : "line"}`,
+        ...(pending || m === mode ? { disabled: "" } : {}),
+        onclick: () => {
+          const ask = (AUTONOMY_CONFIRM[m] || {})[key];
+          if (ask && !confirm(ask)) return;
+          busAct(`autonomy ${key} → ${m}`, (doc) => {
+            doc.autonomy = { ...(doc.autonomy || {}),
+              [key]: { mode: m, requested_at: new Date().toISOString() } };
+          }, status);
+          seg.replaceWith(el("span", { class: "st warn" }, "🕐 applying"));
+        },
+      }, m));
+    }
+    p.append(el("div", { class: "switchrow", style: "align-items:flex-start" },
+      el("span", {},
+        el("div", { style: "font-weight:650" }, label,
+          pending ? el("span", { class: "st warn", style: "margin-left:8px" },
+            "🕐 applying") : null,
+          key === "wide_listings" && cfg.paused_reason
+            ? el("span", { class: "st hot", style: "margin-left:8px" },
+                `⏸ ${cfg.paused_reason}`) : null),
+        el("div", { class: "hint", style: "max-width:520px" }, describe(cfg))),
+      seg));
+  }
+  p.append(el("div", { class: "hint", style: "margin-top:6px" },
+    "proposals land on Today's propose queue and the desks · AUTO only " +
+    "skips the Approve press — affordability, floors, caps, exemptions " +
+    "and the kill rule gate exactly as before"), status);
   return p;
 }
 

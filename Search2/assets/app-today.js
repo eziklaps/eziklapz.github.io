@@ -83,6 +83,34 @@ function renderTodayDesk(root) {
       killSwitchPanel()),
   ));
 
+  /* ----- the propose queue (Phase 5) ----- */
+  const proposals = proposalQueueItems();
+  if (proposals.length) {
+    const pq = panelEl("The machine proposes", {
+      soft: "— nothing here spends or lists without your press " +
+            "(or a dial set to AUTO on Machine)",
+      right: `${proposals.length} proposal${proposals.length === 1 ? "" : "s"}`,
+    });
+    const table = el("table", { class: "grid" },
+      el("tr", {},
+        el("th", {}, "Kind"), el("th", {}, "Product"),
+        el("th", {}, "Terms"), el("th", {}, ""), el("th", {}, "")));
+    for (const pr of proposals) {
+      table.append(el("tr", {},
+        el("td", { class: "t" }, el("span", { class: "tag" }, pr.kind)),
+        el("td", { class: "t" },
+          el("div", { class: "rowtitle" }, pr.title),
+          el("div", { class: "rowsub" }, pr.sub || "")),
+        el("td", {}, pr.figure || "—"),
+        el("td", { class: "r" }, pr.action()),
+        el("td", { class: "r" }, el("button", {
+          class: "b xs line", onclick: pr.open,
+        }, "Open on desk"))));
+    }
+    pq.append(el("div", { class: "scroll-x" }, table));
+    root.append(pq);
+  }
+
   /* ----- best on the Buy desk ----- */
   const top = products.slice(0, 3);
   const best = panelEl("Best on the Buy desk", {

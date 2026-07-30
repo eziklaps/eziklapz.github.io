@@ -137,7 +137,8 @@ function renderBuyDesk(root) {
     } else if (S.buyTab === "ordered") {
       listWrap.append(orderedTable(list, sel, phantoms));
       listWrap.append(el("div", { class: "hint", style: "padding:8px 10px" },
-        "payment is deliberately manual — AliExpress “Pay all” on My Orders · " +
+        "payment is deliberately manual — AliExpress “Pay all” on My Orders, " +
+        "Alibaba via the 💳 link on the card · " +
         "rejected/failed intents free the Order button with the reason on display"));
     } else {
       listWrap.append(masterTable(list, sel));
@@ -212,7 +213,13 @@ function renderBuyDesk(root) {
         note = el("span", {}, `🚚 ${latest.name || "update"} · ${fmtAgo(latest.at)}`
           + (o.tracking.eta_at ? ` · ETA ${fmtDate(o.tracking.eta_at)}` : ""));
       } else if (o.state === "placed" && o.payment_state !== "paid") {
-        note = el("span", { class: "st warn" }, "pay on AliExpress");
+        note = o.supplier === "alibaba"
+          ? (o.payment_url
+              ? el("a", { class: "st warn", href: o.payment_url,
+                          target: "_blank", rel: "noopener" },
+                  "💳 pay on Alibaba ↗")
+              : el("span", { class: "st warn" }, "pay link pending"))
+          : el("span", { class: "st warn" }, "pay on AliExpress");
       } else {
         note = el("span", {}, o.note || "");
       }
@@ -496,14 +503,21 @@ function autoReorderSwitch() {
     class: "note", style: "display:flex;align-items:center;gap:10px;" +
       "flex-wrap:wrap;margin:10px 10px 4px",
   },
-    el("b", {}, `🤖 Auto-reorder ${on ? "ON" : "OFF"}`),
+    // Mode-aware label once the payload carries the Phase 5 dial; the
+    // old ON/OFF words for payloads that predate it.
+    el("b", {}, `🤖 Auto-reorder ${cfg.mode ? cfg.mode.toUpperCase()
+                                            : on ? "ON" : "OFF"}`),
     pending ? el("span", { class: "st warn",
       title: "the flip is on the command bus — the pipeline applies it " +
              "within ~30s while a run or serve is active" }, "🕐 applying")
       : null,
     el("span", { class: "hint", style: "flex:1;min-width:200px" },
-      on ? cadence
-         : "off — the queue below is advice only; nothing is proposed"),
+      cfg.mode === "auto"
+        ? "AUTO — proposals approve themselves (affordability gate, " +
+          "budget and floors still bind) · full dial on Machine"
+        : (on ? cadence
+              : "off — the queue below is advice only; nothing is proposed")
+          + (cfg.mode ? " · full Off/Propose/Auto dial on Machine" : "")),
     btn);
 }
 
@@ -554,6 +568,32 @@ function reorderSuggestCell(r) {
   }
   const cell = el("span", {});
   if (r.suggest_qty) cell.append(`${fmtNum(r.suggest_qty)} units · `);
+  /* Order-qty model verdict: baseline is the cover-days top-up; a bigger
+     number here means an Alibaba MOQ/ladder tier earned its capital. */
+  const m = r.qty_model;
+  if (m && m.chosen_source === "alibaba") {
+    cell.append(el("span", { class: "st ok",
+      title: `Alibaba tier: ${fmtR(m.chosen_per_unit)}/u landed vs ` +
+             `${fmtR(m.baseline_per_unit)}/u at the baseline ` +
+             `${m.baseline_qty} units — save ${m.saving_percent ?? 0}%/u · ` +
+             `cash out ${fmtR(m.cash_out)} · ~${Math.round(m.cover_days ?? 0)}d cover` },
+      "🏭 Alibaba tier"), " ");
+  }
+  if (m && m.blocked_step) {
+    cell.append(el("span", { class: "st warn",
+      title: `a cheaper tier exists — ${m.blocked_step.qty} units at ` +
+             `${fmtR(m.blocked_step.per_unit)}/u (save ` +
+             `${m.blocked_step.saving_percent}%/u) — but it breaches the ` +
+             (m.blocked_step.reason === "capital"
+               ? "per-order capital cap" : "stock-cover ceiling") },
+      `tier capped`), " ");
+  }
+  if (m && (m.pending_quotes || []).length) {
+    cell.append(el("span", { class: "st",
+      title: "tier/MOQ quantities identified but not freight-quoted yet — " +
+             "the next alibaba-match run prices them" },
+      "quotes pending"), " ");
+  }
   cell.append(r.freight_tier === "fast"
     ? el("span", { class: "st hot",
         title: `cheap freight would land ≈${r.gap_days_if_cheap}d after ` +
@@ -778,6 +818,23 @@ function buyDetail(p) {
         (o.payment_state === "paid" ? " — paid"
           : o.state === "placed" && !o.tracking ? " — pay on aliexpress.com if not auto-paid" : "")));
     }
+    if (o.alibaba_trade_id) {
+      sect.append(el("div", { class: "hint", style: "margin-top:4px" },
+        `Alibaba trade ${o.alibaba_trade_id}` +
+        (o.payment_state === "paid" ? " — paid" : "")));
+    }
+    /* Alibaba payment is a human click on the cashier redirect — the one
+       step the API deliberately leaves to a person. */
+    if (o.supplier === "alibaba" && o.payment_url
+        && o.state === "placed" && o.payment_state !== "paid") {
+      sect.append(el("a", {
+        class: "b pri", style: "margin-top:8px;display:inline-block",
+        href: o.payment_url, target: "_blank", rel: "noopener",
+      }, "💳 Pay on Alibaba ↗"));
+      sect.append(el("div", { class: "hint", style: "margin-top:4px" },
+        "opens Alibaba's card/PayPal cashier — the pipeline confirms " +
+        "payment by poll afterwards"));
+    }
     const t = o.tracking;
     if (t?.events?.length) {
       const line = el("div", { class: "trackline", style: "margin-top:8px" });
@@ -868,7 +925,8 @@ function buyDetail(p) {
   }
   card.append(links);
 
-  /* order button */
+  /* order buttons — one per supply rail; the Alibaba one appears only
+     when the arbitration chip has a sane, orderable quote behind it */
   if (!o || ["received", "rejected", "failed", "cancelled"].includes(o.state)) {
     if (busOrderPhantomForAsin(p.asin)) {
       card.append(el("div", { class: "note warn", style: "margin-top:12px" },
@@ -880,6 +938,13 @@ function buyDetail(p) {
         class: "b pri wide", style: "margin-top:12px",
         onclick: () => openOrderModal(p),
       }, `Order${o ? " again" : ""} from AliExpress…`));
+      const ab = p.alibaba;
+      if (ab && ab.product_id && ab.alibaba_per_unit != null) {
+        card.append(el("button", {
+          class: "b wide line", style: "margin-top:8px",
+          onclick: () => openAlibabaOrderModal(p),
+        }, `Order from Alibaba @ ${ab.qty} — ${fmtR(ab.alibaba_per_unit)}/u…`));
+      }
       card.append(el("div", { class: "hint", style: "margin-top:6px;text-align:center" },
         "re-verifies price, freight, restrictions & margin before placing"));
     }
@@ -1129,6 +1194,81 @@ function openOrderModal(p, opts = {}) {
     doneText: "The pipeline re-verifies price, freight, restrictions and " +
       "margin, then places the order — within ~30s while a run or serve is " +
       "active. The Buy desk shows its state on the next refresh.",
+  });
+}
+
+/* The Alibaba rail's spend picture: everything derives from the stored
+   arbitration quote (tier price at the QUOTED qty, freight at the quoted
+   qty) — a different typed quantity re-tiers and re-quotes live at
+   verification, so the box is honest that it's the quoted shape. */
+function alibabaSpendBox(ab, p, qty) {
+  const fx = ab.fx || 18;
+  const unit = ab.item_usd * fx;
+  const goods = unit * qty;
+  const freight = ab.freight_usd != null ? ab.freight_usd * fx : null;
+  const pct = p.import_percentage != null ? Number(p.import_percentage) : null;
+  const duty = pct != null ? goods * (pct / 100) : null;
+  const vat = duty != null ? (goods * 1.10 + duty) * 0.15 : null;
+  const payNow = goods + (freight || 0);
+  const row = (k, v, bold) => el("div", {
+    class: "kvrow", style: bold ? "font-weight:650" : "",
+  }, el("span", { class: "k", style: bold ? "color:var(--ink)" : "" }, k),
+     el("span", { class: "v" }, v));
+  return el("div", { class: "note", style: "margin-top:12px" },
+    row(`Goods — ${qty} × $${ab.item_usd} (fx ${fx})`, fmtR(goods)),
+    row(`Freight (quoted @ ${ab.qty} units)`,
+        freight != null ? fmtR(freight) : "—"),
+    row("You pay Alibaba (card/PayPal, USD at their FX)",
+        `≈ ${fmtR(payNow)}`, true),
+    row(`SARS duty at import (${pct != null ? pct + "%" : "?"})`,
+        duty != null ? fmtR(duty) : "—"),
+    row("Import VAT ((goods ×1.10 + duty) ×15%)",
+        vat != null ? fmtR(vat) : "—"),
+    row("Clearance (once per parcel)", "≈ R54"),
+    row("All-in landed", `≈ ${fmtR(payNow + (duty || 0) + (vat || 0) + 54)}`,
+        true),
+    el("div", { class: "hint", style: "margin-top:6px" },
+      "estimates from the stored arbitration quote — ladder tier, freight " +
+      "and margin re-verify live at the real quantity before placing"));
+}
+
+function openAlibabaOrderModal(p) {
+  const ab = p.alibaba;
+  if (!ab || !ab.product_id) return;
+  typedCommitModal({
+    title: "Order from Alibaba",
+    product: p.title,
+    lines: [
+      `Alibaba item ${ab.product_id}` +
+        (ab.supplier ? ` · ${ab.supplier}` : "") +
+        (ab.moq != null ? ` · MOQ ${ab.moq}` : ""),
+      `≈${fmtR(ab.alibaba_per_unit)}/u landed @ ${ab.qty} units vs AE ` +
+        `${fmtR(ab.ae_per_unit)}/u` +
+        (ab.delivery_days ? ` · ${ab.delivery_days} days freight` : ""),
+    ],
+    warn: orderGateWarn(),
+    word: "ORDER",
+    qtyDefault: ab.qty,
+    qtyLabel: "Quantity",
+    confirmLabel: "Commit Alibaba order intent",
+    busKey: "orders",
+    spendFor: (qty) => alibabaSpendBox(ab, p, qty),
+    note: "The pipeline re-verifies MOQ, the quantity's ladder-tier " +
+      "price, fresh ZA freight and the margin floor before placing — " +
+      "then a 💳 Pay on Alibaba link appears on this card. Payment is " +
+      "YOUR click on Alibaba's card/PayPal cashier; nothing charges " +
+      "silently.",
+    entryFor: (qty) => ({
+      id: `web-${p.asin}-${Date.now()}`,
+      asin: p.asin, supplier: "alibaba",
+      alibaba_product_id: ab.product_id,
+      ...(ab.sku_id != null ? { alibaba_sku_id: ab.sku_id } : {}),
+      quantity: qty, source: "manual",
+      requested_at: new Date().toISOString(),
+    }),
+    doneText: "The pipeline re-verifies and places the BuyNow order — " +
+      "within ~30s while a run or serve is active. The 💳 payment link " +
+      "lands on this card once placed.",
   });
 }
 

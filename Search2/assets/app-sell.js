@@ -28,6 +28,11 @@ function renderSellDesk(root) {
     class: `tab${S.sellTab === id ? " active" : ""}`,
     onclick: () => { S.sellTab = id; renderDesk(); },
   }, label);
+  // Cross-channel by design (one switch, one floor, both books), so it
+  // sits above the tabs. Renders nothing on payloads that predate it.
+  const rp = repricerPanel(data.repricer);
+  if (rp) root.append(rp);
+
   root.append(el("div", { class: "tabs" },
     // Tab counts = listing intents only; shelves and approval queues live
     // inside their own panels and don't inflate the numbers.
@@ -50,6 +55,102 @@ function renderSellChannel(root, channel, data) {
     accountPanelEl(channel, data.account),
     sellSalesPanel(data.sales, channel === "takealot" ? "Takealot" : "Amazon")));
   if (channel === "amazon") root.append(sellTodosPanel((S.seller || {}).todos || {}));
+}
+
+/* ---------- the repricer (Phase 3: stay winning) ---------- */
+
+const REPRICE_ACTION_TONE = {
+  lower: "ok", raise: "ok", outpriced: "bad", hold: "mute", skip: "mute",
+};
+
+/* One switch + one table for both channels: what the automation decided
+   per live offer, floor-guarded at buy-ready net margin. Decisions are
+   computed even while the switch is off (via the manual 'repricer' stage),
+   so the panel earns trust before a single price moves. The switch press
+   mirrors autoReorderSwitch's bus contract exactly (key `repricer`). */
+function repricerPanel(cfg) {
+  if (!cfg) return null;
+  const press = (S.commands || {}).repricer || null;
+  const pending = press && press.requested_at
+    && press.requested_at !== cfg.requested_at ? press : null;
+  const on = pending ? !!pending.enabled : !!cfg.enabled;
+
+  const btn = el("button", {
+    class: `b sm ${on ? "" : "pri"}`,
+    ...(pending ? { disabled: "" } : {}),
+    onclick: () => {
+      if (!confirm(on
+        ? "Switch the repricer OFF? Prices freeze where they are; " +
+          "decisions stay visible here."
+        : "Switch the repricer ON? Live offers track the best competitor " +
+          `(undercut R${cfg.undercut ?? 1}), never below the buy-ready ` +
+          `floor (R${cfg.net_floor ?? 10} net after inbound), capped at ` +
+          `${cfg.max_per_day ?? 25}/channel/day and ` +
+          `${cfg.sku_max_per_day ?? 4}/offer/day.`)) return;
+      busAct(`repricer ${on ? "off" : "on"}`, (doc) => {
+        doc.repricer = {
+          enabled: !on, requested_at: new Date().toISOString(),
+        };
+      }, null, "");
+      btn.replaceWith(el("span", { class: "st warn" }, "🕐 applying"));
+    },
+  }, on ? "Switch off" : "Switch on…");
+
+  const p = panelEl("Repricer", {
+    soft: "— stay winning on both channels",
+    right: cfg.last_pass_at
+      ? el("span", {}, "last pass ", agoSpan(cfg.last_pass_at))
+      : "no pass yet",
+  });
+
+  const book = Object.entries(cfg.book || {})
+    .map(([ch, n]) => `${ch} ${n}`).join(" · ");
+  const applied = Object.entries(cfg.applied_today || {})
+    .map(([ch, n]) => `${ch} ${n}`).join(" · ");
+  p.append(el("div", { class: "chiprow", style: "margin:0 0 8px;align-items:center;display:flex;gap:10px;flex-wrap:wrap" },
+    el("span", { class: `st ${on ? "ok" : cfg.mode === "propose" ? "warn" : "mute"}` },
+      on ? "ARMED — prices move inside the caps"
+        : cfg.mode === "propose"
+          ? "PROPOSE — decisions refresh on cadence, prices frozen " +
+            "(dial on Machine)"
+          : "off — decisions only"),
+    btn,
+    el("span", { class: "st mute" }, `book: ${book || "no live own-offers yet"}`),
+    applied ? el("span", { class: "st ok" }, `applied today: ${applied}`) : null));
+
+  const rows = cfg.rows || [];
+  if (rows.length) {
+    const table = el("table", { class: "grid" },
+      el("tr", {}, el("th", {}, "Offer"), el("th", {}, "Channel"),
+        el("th", {}, "Current"), el("th", {}, "Floor"),
+        el("th", {}, "Best rival"), el("th", {}, "Verdict"),
+        el("th", {}, "Target"), el("th", {}, "When")));
+    for (const r of rows) {
+      table.append(el("tr", {},
+        el("td", { class: "t mono", style: "font-size:11.5px", title: r.reason || "" }, r.sku),
+        el("td", { class: "t" }, r.channel),
+        el("td", {}, fmtR(r.current)),
+        el("td", { title: "buy-ready line: net margin after inbound allocation never drops under the floor" }, fmtR(r.floor)),
+        el("td", {}, r.competitor != null ? fmtR(r.competitor) : "—"),
+        el("td", { class: "t", title: r.reason || "" }, el("span", {
+          class: `st ${REPRICE_ACTION_TONE[r.action] || "mute"}`,
+        }, r.action + (r.apply_result && r.apply_result !== "accepted" ? " ⚠" : ""))),
+        el("td", {}, r.target != null ? fmtR(r.target) : "—"),
+        el("td", { class: "t", style: "color:var(--muted);font-size:12px" },
+          fmtAgo(r.applied_at || r.decided_at))));
+    }
+    p.append(el("div", { class: "scroll-x" }, table));
+  } else {
+    p.append(emptyLine(cfg.last_pass_at
+      ? "book is empty — no live own-offers to defend yet"
+      : "no decisions yet — run the 'repricer' stage (Machine desk) to " +
+        "preview what the automation would do, or arm the switch"));
+  }
+  p.append(el("div", { class: "hint", style: "margin-top:8px" },
+    "hover a verdict for the why · floor = the price where net margin " +
+    "hits the buy-ready line — no competitor, cap or knob can push under " +
+    "it; rivals already below it read as 'outpriced', never chased"));
+  return p;
 }
 
 function enabledPill(enabled, what) {
@@ -254,6 +355,15 @@ function intentReasonEl(it) {
     class: `st ${tone}`, style: "font-size:11px;margin-top:3px;white-space:normal",
   }, ...kids);
   if (it.state === "proposed") {
+    if (it.source === "wide_listing") {
+      const w = it.wide || {};
+      return wrap("warn",
+        `wide listing: ${w.orders ? w.orders.toLocaleString() + "+ Ali orders, " : ""}` +
+        `no ZA counterpart — a NEW page, ships ≤${it.leadtime_days || "?"}d` +
+        `${w.net_per_unit ? `, ≈R${w.net_per_unit}/unit net` : ""}` +
+        `${w.product_type_granted === false ? " · exemption still needed" : ""}` +
+        " — Approve queues it, Dismiss retires it for good");
+    }
     return wrap("warn",
       "dual-listing twin: stock from an Amazon order can also sell here — " +
       "Approve queues it, Dismiss retires it for good");
