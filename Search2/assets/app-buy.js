@@ -816,6 +816,34 @@ function buyDetail(p) {
       p.channel === "takealot" ? "Takealot vs AliExpress" : "Amazon vs AliExpress"),
     p.channel === "takealot" ? takealotCompareTable(p) : amazonCompareTable(p)));
 
+  /* Alibaba supplier quote — only present when the alibaba-match pass
+     found a sane match and the margin arbitration produced real numbers
+     (per-unit landed, supplier side only, at the quoted quantity). */
+  const ab = p.alibaba;
+  if (ab && ab.alibaba_per_unit != null) {
+    const better = (ab.saving_per_unit ?? 0) > 0;
+    const tip = [
+      ab.supplier ? `supplier ${ab.supplier}` : null,
+      ab.moq != null ? `MOQ ${ab.moq}` : null,
+      `item $${ab.item_usd} + freight $${ab.freight_usd} @ qty ${ab.qty} (fx ${ab.fx})`,
+      ab.delivery_days ? `${ab.delivery_days} days freight` : null,
+      ab.sku_count > 1 ? `cheapest of ${ab.sku_count} variants` : null,
+      ab.confidence != null ? `image match ${ab.confidence}` : null,
+      `checked ${fmtAgo(ab.checked_at)}`,
+    ].filter(Boolean).join(" · ");
+    card.append(el("div", { class: "sect" },
+      el("div", { class: "sl" }, "Alibaba supplier quote"),
+      el("div", { style: "display:flex;align-items:center;gap:8px;flex-wrap:wrap" },
+        el("span", { class: better ? "pill ok" : "pill mute", title: tip },
+          `Alibaba @ ${ab.qty}: ${fmtR(ab.alibaba_per_unit)}/u vs AE ${fmtR(ab.ae_per_unit)}/u`),
+        el("span", { class: "hint" },
+          better ? `save ${ab.saving_percent}%/u landed` : "AE stays cheaper"),
+        ab.permalink ? el("a", {
+          href: ab.permalink.startsWith("//") ? `https:${ab.permalink}` : ab.permalink,
+          target: "_blank", rel: "noopener",
+        }, "Alibaba ↗") : null)));
+  }
+
   /* 30-day trends */
   const trends = trendSection(p);
   if (trends) card.append(trends);
