@@ -511,6 +511,15 @@ function ledgerPanel(acc) {
   const p = panelEl("Ledger", {
     soft: `— ${fmtNum(acc.ledger_rows || 0)} rows · append-only`,
   });
+  const tkf = acc.takealot_finances || {};
+  if (tkf.balances) {
+    p.append(el("div", { class: "chiprow", style: "margin:0 0 8px" },
+      el("span", { class: "st ok" }, `Takealot balance R${fmtNum(tkf.balances.current)}`),
+      el("span", { class: "st mute" }, `available R${fmtNum(tkf.balances.available)}`),
+      el("span", { class: "st mute" }, `held back R${fmtNum(tkf.balances.held_back)}`),
+      el("span", { class: "st mute", title: "GET /transactions mirror" },
+        `${fmtNum(tkf.transactions_mirrored || 0)} tx mirrored`)));
+  }
   if (!(acc.recent || []).length) {
     p.append(emptyLine("no ledger rows yet"));
     return p;

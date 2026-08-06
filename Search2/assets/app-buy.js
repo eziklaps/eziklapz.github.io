@@ -360,16 +360,29 @@ function marginCell(p) {
       `${net ? " net" : ""} · ${p.margin_percent ?? "—"}%`));
 }
 
+function wishlistChip(p) {
+  if (p.wishlist_30d == null || p.wishlist_30d <= 0) return null;
+  return el("span", {
+    class: "st ok",
+    title: "wishlist adds in the last 30 days, measured off our own (stockless) probe offer on Takealot — real ZA demand, feeds the score's demand component",
+  }, `♡${fmtNum(p.wishlist_30d)}/30d`);
+}
+
 function demandCell(p) {
   const est = p.est_units_month != null
     ? `≈${fmtNum(Math.round(p.est_units_month))}/mo` : null;
+  const wl = wishlistChip(p);
   if (p.channel === "takealot") {
     const reviews = p.takealot_reviews != null ? `${fmtNum(p.takealot_reviews)} reviews` : null;
-    return el("span", { class: "num", style: "font-size:12px;color:var(--ink2)" },
-      [est, reviews].filter(Boolean).join(" · ") || "—");
+    const span = el("span", { class: "num", style: "font-size:12px;color:var(--ink2)" });
+    const parts = [wl, est, reviews].filter(Boolean);
+    parts.forEach((x, i) => span.append(i ? " · " : "", x));
+    if (!parts.length) span.append("—");
+    return span;
   }
   const d = p.rank_delta_24h;
   const parts = [];
+  if (wl) parts.push(wl);
   if (d) {
     parts.push(el("span", {
       class: `st ${d < 0 ? "ok" : "hot"}`,

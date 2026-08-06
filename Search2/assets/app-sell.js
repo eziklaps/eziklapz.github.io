@@ -54,6 +54,11 @@ function renderSellChannel(root, channel, data) {
   },
     accountPanelEl(channel, data.account),
     sellSalesPanel(data.sales, channel === "takealot" ? "Takealot" : "Amazon")));
+  if (channel === "takealot" && (data.probe || data.returns)) {
+    root.append(el("div", {
+      style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start",
+    }, probePanelEl(data.probe), returnsPanelEl(data.returns)));
+  }
   if (channel === "amazon") root.append(sellTodosPanel((S.seller || {}).todos || {}));
 }
 
@@ -488,6 +493,8 @@ function accountPanelEl(channel, account) {
       el("tr", {}, el("th", {}, "Offer"), el("th", {}, "Status"),
         el("th", {}, "Price"), el("th", {}, "Stock"),
         tk ? el("th", {}, "Wishlist 30d") : el("th", {}, "Fulfilment"),
+        tk ? el("th", {}, "Views 30d") : null,
+        tk ? el("th", {}, "Conv %") : null,
         tk ? el("th", {}, "Returns") : null));
     for (const o of account.rows) {
       table.append(el("tr", {},
@@ -501,6 +508,8 @@ function accountPanelEl(channel, account) {
         el("td", {}, o.stock ?? "—"),
         tk ? el("td", {}, fmtNum(o.wishlist_30d))
            : el("td", { class: "t" }, o.fulfillment || "—"),
+        tk ? el("td", {}, fmtNum(o.views_30d)) : null,
+        tk ? el("td", {}, o.conversion_30d != null ? `${o.conversion_30d}%` : "—") : null,
         tk ? el("td", {}, fmtNum(o.returned_30d)) : null));
     }
     p.append(el("div", { class: "scroll-x" }, table));
@@ -513,6 +522,73 @@ function tkHint(channel) {
   return channel === "takealot"
     ? "stock column fills once offers carry warehouse stock (today's are leadtime-model)"
     : "mirrored from the Listings API — the same listings Seller Central shows under Manage Inventory";
+}
+
+/* ---------- wishlist probe + returns (Takealot only) ---------- */
+
+function probePanelEl(probe) {
+  const p = panelEl("Wishlist probe", { soft: "— stockless demand telemetry" });
+  if (!probe) {
+    p.append(emptyLine("no probe offers yet — queue profitable winners with " +
+      "listing_admin.py probe-queue, then probe-submit (one stockless batch)"));
+    return p;
+  }
+  const chips = el("div", { class: "chiprow", style: "margin:0 0 8px" });
+  for (const [st, n] of Object.entries(probe.counts || {})) {
+    chips.append(el("span", {
+      class: `st ${st === "live" ? "ok" : st === "disabled" ? "hot" : "mute"}`,
+    }, `${st}: ${n}`));
+  }
+  p.append(chips);
+  const top = (probe.top || []).filter((o) => o.wishlist_30d || o.views_30d);
+  if (top.length) {
+    const table = el("table", { class: "grid" },
+      el("tr", {}, el("th", {}, "Probe offer"), el("th", {}, "Wishlist 30d"),
+        el("th", {}, "Views 30d"), el("th", {}, "Status")));
+    for (const o of top) {
+      table.append(el("tr", {},
+        el("td", { class: "t" }, el("span", { class: "rowtitle" }, o.title || o.sku)),
+        el("td", {}, fmtNum(o.wishlist_30d)),
+        el("td", {}, fmtNum(o.views_30d)),
+        el("td", { class: "t" }, el("span", {
+          class: `st ${OFFER_STATUS_TONE[o.status] || "mute"}`,
+        }, (o.status || "?").replace(/_by_seller|_by_takealot/, "")))));
+    }
+    p.append(el("div", { class: "scroll-x" }, table));
+  } else {
+    p.append(emptyLine("telemetry accrues once offers go live — wishlist adds and " +
+      "page views land with the 6h offer snapshot"));
+  }
+  p.append(el("div", { class: "hint", style: "margin-top:8px" },
+    "probe offers are stockless (not buyable) on purpose: they measure demand — " +
+    "wishlist adds, page views, conversion — before stock money moves"));
+  return p;
+}
+
+function returnsPanelEl(returns) {
+  const p = panelEl("Returns", {
+    soft: "— reason mix + the customer's own words",
+    right: returns ? el("span", {}, "checked ", agoSpan(returns.checked_at)) : null,
+  });
+  if (!returns || !returns.total) {
+    p.append(emptyLine("no returns on record — the 'sales' poll mirrors " +
+      "GET /returns every 6h"));
+    return p;
+  }
+  const chips = el("div", { class: "chiprow", style: "margin:0 0 8px" });
+  for (const [reason, n] of Object.entries(returns.reasons || {})) {
+    chips.append(el("span", {
+      class: `st ${reason === "defective_or_damaged" || reason === "not_what_i_ordered" ? "hot" : "mute"}`,
+    }, `${reason.replaceAll("_", " ")}: ${n}`));
+  }
+  p.append(chips);
+  for (const r of returns.recent || []) {
+    p.append(el("div", { class: "warnbar", style: "margin-bottom:6px;padding:8px 12px;font-size:12px" },
+      `${r.date || ""} ${r.sku || ""} [${(r.reason || "?").replaceAll("_", " ")}` +
+      `${r.outcome ? ` → ${r.outcome.replaceAll("_", " ")}` : ""}]` +
+      (r.comment ? ` — “${r.comment}”` : "")));
+  }
+  return p;
 }
 
 /* ---------- panel 4: sales (shared) ---------- */
