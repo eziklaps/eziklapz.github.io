@@ -361,7 +361,13 @@ function marginCell(p) {
 }
 
 function wishlistChip(p) {
-  if (p.wishlist_30d == null || p.wishlist_30d <= 0) return null;
+  if (p.wishlist_30d == null) return null; // no probe offer = demand unmeasured
+  if (p.wishlist_30d <= 0) {
+    return el("span", {
+      class: "st mute",
+      title: "probe offer live but ZERO wishlist adds in 30 days — measured low demand (evidence, not missing data)",
+    }, "♡0/30d");
+  }
   return el("span", {
     class: "st ok",
     title: "wishlist adds in the last 30 days, measured off our own (stockless) probe offer on Takealot — real ZA demand, feeds the score's demand component",
