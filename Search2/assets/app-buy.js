@@ -109,7 +109,17 @@ function renderBuyDesk(root) {
         score: (p) => p.opportunity_score || 0,
         marginR: (p) => p.net_margin ?? p.margin_total ?? 0,
         marginPct: (p) => p.margin_percent || 0,
-        demand: (p) => p.est_units_month || 0,
+        // The score's demand component (0..1) is the unified cross-channel
+        // read — measured wishlist, rank curve and momentum already folded.
+        // Raw est_units_month put the review-rate model's noisiest guesses
+        // on top of measured demand; the fallbacks (payloads that predate
+        // components) mirror scoring.py's log saturations at 300.
+        demand: (p) => {
+          const d = (p.score_components || {}).demand;
+          if (typeof d === "number") return d;
+          const raw = p.wishlist_30d > 0 ? p.wishlist_30d : p.est_units_month;
+          return raw > 0 ? Math.min(1, Math.log10(raw + 1) / Math.log10(301)) : 0;
+        },
       }[S.buySort] || ((p) => p.opportunity_score || 0);
       list = [...list].sort((x, y) => key(y) - key(x));
     }
@@ -376,7 +386,10 @@ function wishlistChip(p) {
 
 function demandCell(p) {
   const est = p.est_units_month != null
-    ? `≈${fmtNum(Math.round(p.est_units_month))}/mo` : null;
+    ? el("span", {
+        title: p.velocity_confidence
+          ? `model estimate — ${p.velocity_confidence}` : "",
+      }, `≈${fmtNum(Math.round(p.est_units_month))}/mo`) : null;
   const wl = wishlistChip(p);
   if (p.channel === "takealot") {
     const reviews = p.takealot_reviews != null ? `${fmtNum(p.takealot_reviews)} reviews` : null;
@@ -1037,23 +1050,51 @@ function trendSection(p) {
   const hist = p.history || {};
   const rank = sparkline(hist.rank, { betterDown: true, label: "Sales rank" });
   const price = sparkline(hist.price, { label: "Price" });
+  const wl = sparkline(hist.wishlist, { label: "Wishlist adds/30d" });
+  const wlSeries = hist.wishlist || [];
+  const wlNow = p.wishlist_30d
+    ?? (wlSeries.length ? wlSeries[wlSeries.length - 1][1] : null);
   const est = p.est_units_month;
   const events = p.sale_events_28d;
-  if (!rank && !price && est == null && !events) return null;
+  if (!rank && !price && est == null && !events && wlNow == null) return null;
   const sect = el("div", { class: "sect" },
     el("div", { class: "sl" }, "30-day trends"));
   const rows = el("div", { class: "trend" });
+  if (wlNow != null) {
+    // Measured demand leads: the probe offer's trailing-30d wishlist
+    // counter, sampled daily — each point is that day's 30-day window, so
+    // a rising line is demand accelerating, not just accumulating.
+    const delta = wlSeries.length >= 2
+      ? wlSeries[wlSeries.length - 1][1] - wlSeries[0][1] : 0;
+    rows.append(el("div", { class: "trow" },
+      el("span", { class: "tl" }, "Wishlist"), wl || el("span", {}),
+      el("span", {
+        class: "tv",
+        title: "wishlist adds in the trailing 30 days, measured off our own " +
+          "(stockless) probe offer on Takealot — sampled daily; the line is " +
+          "the 30-day counter over time, so rising = demand accelerating",
+      }, `♡${fmtNum(wlNow)}/30d`,
+        delta ? el("span", { class: `tv ${delta > 0 ? "up" : "down"}` },
+          ` ${delta > 0 ? "▲" : "▼"}${fmtNum(Math.abs(delta))}`) : "")));
+  }
   if (est != null || events) {
+    const modelTitle = p.channel === "takealot"
+      ? `review-velocity model estimate (${p.velocity_confidence}) — ` +
+        "order-of-magnitude only; the measured wishlist above is the " +
+        "primary demand read"
+      : `estimated units/month from rank (confidence: ${p.velocity_confidence}); ` +
+        `${events || 0} sale-days measured in 28d`;
     rows.append(el("div", { class: "trow" },
       el("span", { class: "tl" }, "Sales"), el("span", {}),
       el("span", {
         class: "tv",
         title: est != null
-          ? `estimated units/month from rank (confidence: ${p.velocity_confidence}); ` +
-            `${events || 0} sale-days measured in 28d`
+          ? modelTitle
           : `rank moved on ${events} days in 28d — units sold`,
       }, est != null
-        ? `≈${fmtNum(Math.round(est))}/mo${p.velocity_confidence ? ` (${p.velocity_confidence} conf)` : ""}`
+        ? (p.channel === "takealot"
+          ? `≈${fmtNum(Math.round(est))}/mo (model)`
+          : `≈${fmtNum(Math.round(est))}/mo${p.velocity_confidence ? ` (${p.velocity_confidence} conf)` : ""}`)
         : `${events} sale-day${events === 1 ? "" : "s"}/28d`)));
   }
   if (rank) {
