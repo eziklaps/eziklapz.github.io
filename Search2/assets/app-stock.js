@@ -697,6 +697,13 @@ function renderStockDesk(root) {
    R20+/unit ex VAT). House rule: ≈70% JHB / 30% CPT by demand weight —
    rebalance here (and add takealot_dbn a share) once its address lands. */
 const TAKEALOT_DC_SPLIT = [["takealot_jhb", 0.7], ["takealot_cpt", 0.3]];
+/* MIN-LANE RULE (Andrew 2026-08-07): a lane only earns its own parcel
+   when its share of the send comes to at least this many whole units —
+   a 1-unit box to CPT beside a 4-unit box to JHB pays a second courier
+   fee to dodge an R20/unit Auto-IBT, which never pays off. Sends below
+   the bar ride whole to the primary DC; with 70/30 the CPT leg reaches
+   5 units at a 17-unit send, so splitting starts there. */
+const TAKEALOT_MIN_LANE_UNITS = 5;
 
 function sendAdvice(m) {
   const dests = (m.courier || {}).destinations || [];
@@ -740,11 +747,22 @@ function sendAdvice(m) {
       }
       takealotQty = qty;
       /* split across the DCs the house rule names; a lane without a
-         confirmed address drops out and its share folds into the rest */
-      const lanes = TAKEALOT_DC_SPLIT
+         confirmed address drops out and its share folds into the rest,
+         and so does a lane whose share would land under the min-lane
+         bar (smallest share folds first; the fold can cascade) */
+      let lanes = TAKEALOT_DC_SPLIT
         .map(([key, share]) => ({ dest: dests.find((d) => d.key === key), share }))
-        .filter((x) => x.dest && x.dest.ready);
-      if (lanes.length >= 2 && qty >= 2) {
+        .filter((x) => x.dest && x.dest.ready)
+        .sort((a, b) => b.share - a.share);
+      let splitFrom = null; // send size at which the folded lane returns
+      while (lanes.length > 1) {
+        const total = lanes.reduce((s, x) => s + x.share, 0);
+        const tail = lanes[lanes.length - 1];
+        if (qty * (tail.share / total) >= TAKEALOT_MIN_LANE_UNITS) break;
+        splitFrom = Math.ceil(TAKEALOT_MIN_LANE_UNITS * total / tail.share);
+        lanes = lanes.slice(0, -1);
+      }
+      if (lanes.length >= 2) {
         const total = lanes.reduce((s, x) => s + x.share, 0);
         let left = qty;
         lanes.forEach((lane, i) => {
@@ -762,14 +780,20 @@ function sendAdvice(m) {
           }
         });
       } else {
+        const solo = (lanes[0] || {}).dest || destFor("takealot");
         advice.push({
           r, channel: "takealot",
           qty,
-          dest: (lanes[0] || {}).dest || destFor("takealot"),
+          dest: solo,
           why: why.join(" · ")
-            + (lanes.length < 2 && TAKEALOT_DC_SPLIT.length >= 2
-               ? " · single DC only — confirm the other DC's address to split 70/30"
-               : ""),
+            + (splitFrom
+               ? ` · all to ${solo ? solo.label : "one DC"} — below ` +
+                 `${splitFrom}u a split leg would carry under ` +
+                 `${TAKEALOT_MIN_LANE_UNITS} units and the extra courier ` +
+                 "fee beats the Auto-IBT saving"
+               : (lanes.length < 2 && TAKEALOT_DC_SPLIT.length >= 2
+                  ? " · single DC only — confirm the other DC's address to split 70/30"
+                  : "")),
           askMax: true,
         });
       }
