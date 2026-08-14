@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RainCheck ops — backtest</title>
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 <main>
@@ -17,7 +17,7 @@
   <h2>Per threshold</h2>
   <div class="tablewrap" id="thr"></div>
 </main>
-<script src="common.js?v=1"></script>
+<script src="common.js?v=2"></script>
 <script>
 nav("backtest");
 (async () => {
@@ -29,19 +29,29 @@ nav("backtest");
       `<div class="card"><div class="k">status</div><div class="v warn">no backtest yet</div></div>`;
     return;
   }
-  const skillCls = (s) => s > 0 ? "good" : "bad";
   document.getElementById("cards").innerHTML = [
     ["Observations", bt.n_obs.toLocaleString(), ""],
     ["Cells", bt.n_cells, ""],
     ["Calibration slope", bt.calibration_slope ?? "—",
       Math.abs((bt.calibration_slope ?? 1) - 1) < 0.15 ? "good" : "warn"],
     ["Brier (baseline)", bt.brier_baseline.toExponential(3), ""],
-    ["ENSO skill overall", (100 * bt.brier_skill_conditional).toFixed(2) + "%",
-      skillCls(bt.brier_skill_conditional)],
-    ["ENSO skill DJF", (100 * bt.brier_skill_djf).toFixed(2) + "%",
-      skillCls(bt.brier_skill_djf)],
   ].map(([k, v, cls]) =>
     `<div class="card"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`).join("");
+  if (bt.variants) {
+    const wrap = document.createElement("div");
+    wrap.className = "tablewrap"; wrap.style.marginTop = "12px";
+    document.getElementById("cards").after(wrap);
+    renderTable(wrap, Object.entries(bt.variants).map(([name, v]) => ({ name, ...v })), [
+      { key: "name", label: "variant" },
+      { label: "Brier", get: r => r.brier.toExponential(3), num: true },
+      { label: "skill vs baseline", num: true, html: true,
+        get: r => `<span style="color:var(--${r.skill_vs_baseline > 0 ? "good" : "bad"})">` +
+                  (100 * r.skill_vs_baseline).toFixed(3) + "%</span>" },
+      { label: "skill DJF", num: true, html: true,
+        get: r => `<span style="color:var(--${r.skill_djf > 0 ? "good" : "bad"})">` +
+                  (100 * r.skill_djf).toFixed(3) + "%</span>" },
+    ]);
+  }
 
   const pts = bt.reliability.map(b => [b.mean_pred, b.mean_realized]);
   const mx = Math.max(...pts.flat()) * 1.1;
