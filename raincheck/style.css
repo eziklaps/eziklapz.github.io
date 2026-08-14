@@ -1,0 +1,74 @@
+:root {
+  --bg: #0A1120; --panel: #111A2E; --panel2: #16213A; --line: #24314F;
+  --text: #D8E2F0; --dim: #7C8BA5; --accent: #5FA8D6; --good: #6FCF97;
+  --bad: #EB5757; --warn: #F2C94C;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+  min-height: 100vh;
+}
+a { color: var(--accent); text-decoration: none; }
+nav {
+  display: flex; gap: 4px; align-items: center; flex-wrap: wrap;
+  padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+nav .brand { font-weight: 600; letter-spacing: .04em; margin-right: 14px; }
+nav .brand span { color: var(--accent); }
+nav a { padding: 5px 12px; border-radius: 6px; color: var(--dim); }
+nav a.active, nav a:hover { color: var(--text); background: var(--panel2); }
+nav .logout { margin-left: auto; cursor: pointer; }
+main { max-width: 1100px; margin: 0 auto; padding: 22px 20px 60px; }
+h1 { font-size: 20px; margin-bottom: 4px; }
+h2 { font-size: 15px; color: var(--dim); font-weight: 600; margin: 22px 0 8px;
+     text-transform: uppercase; letter-spacing: .06em; }
+.sub { color: var(--dim); font-size: 13px; }
+.cards { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 16px; min-width: 150px; flex: 1;
+}
+.card .k { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.card .v { font-size: 22px; font-family: Consolas, monospace; margin-top: 2px; }
+.card .v.good { color: var(--good); } .card .v.bad { color: var(--bad); }
+.card .v.warn { color: var(--warn); }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line);
+         white-space: nowrap; }
+th { color: var(--dim); font-weight: 600; background: var(--panel); position: sticky; top: 0; }
+td.num { font-family: Consolas, monospace; }
+tr:last-child td { border-bottom: none; }
+.pill { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: 12px; }
+.pill.paid { background: #1B3A2A; color: var(--good); }
+.pill.unpaid { background: #2A2233; color: var(--dim); }
+.pill.active { background: #14304A; color: var(--accent); }
+.pill.awaiting_data { background: #3A311B; color: var(--warn); }
+.pill.disagree { background: #3A1B1B; color: var(--bad); }
+canvas { width: 100%; background: var(--panel); border: 1px solid var(--line);
+         border-radius: 10px; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin: 14px 0; }
+.controls label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 3px; }
+input, select, button {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 10px; font: inherit;
+}
+button.primary { background: var(--accent); color: #06121F; font-weight: 600;
+                 cursor: pointer; border: none; }
+button.primary:hover { filter: brightness(1.1); }
+.quotebox { background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
+            padding: 16px 18px; margin-top: 14px; }
+.quotebox .big { font-size: 28px; font-family: Consolas, monospace; color: var(--accent); }
+.bar { height: 8px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+#login {
+  position: fixed; inset: 0; background: rgba(4,8,16,.92); display: flex;
+  align-items: center; justify-content: center; z-index: 50;
+}
+#login form { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+              padding: 28px 30px; width: 320px; }
+#login h1 { margin-bottom: 14px; }
+#login input { width: 100%; margin-bottom: 12px; }
+#login button { width: 100%; }
+.err { color: var(--bad); font-size: 13px; margin-top: 8px; }

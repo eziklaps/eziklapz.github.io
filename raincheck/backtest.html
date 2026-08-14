@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RainCheck ops — backtest</title>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+<main>
+  <h1>Backtest</h1>
+  <p class="sub">Leave-one-year-out calibration of the current model.</p>
+  <div class="cards" id="cards"></div>
+  <h2>Reliability (predicted vs realized)</h2>
+  <canvas id="rel" height="280"></canvas>
+  <div class="tablewrap" id="relTable" style="margin-top:12px"></div>
+  <h2>Per threshold</h2>
+  <div class="tablewrap" id="thr"></div>
+</main>
+<script src="common.js?v=1"></script>
+<script>
+nav("backtest");
+(async () => {
+  let bt;
+  try { bt = await api("/v1/backtest/latest"); }
+  catch (e) {
+    if (e.message === "unauthorized") return;
+    document.getElementById("cards").innerHTML =
+      `<div class="card"><div class="k">status</div><div class="v warn">no backtest yet</div></div>`;
+    return;
+  }
+  const skillCls = (s) => s > 0 ? "good" : "bad";
+  document.getElementById("cards").innerHTML = [
+    ["Observations", bt.n_obs.toLocaleString(), ""],
+    ["Cells", bt.n_cells, ""],
+    ["Calibration slope", bt.calibration_slope ?? "—",
+      Math.abs((bt.calibration_slope ?? 1) - 1) < 0.15 ? "good" : "warn"],
+    ["Brier (baseline)", bt.brier_baseline.toExponential(3), ""],
+    ["ENSO skill overall", (100 * bt.brier_skill_conditional).toFixed(2) + "%",
+      skillCls(bt.brier_skill_conditional)],
+    ["ENSO skill DJF", (100 * bt.brier_skill_djf).toFixed(2) + "%",
+      skillCls(bt.brier_skill_djf)],
+  ].map(([k, v, cls]) =>
+    `<div class="card"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`).join("");
+
+  const pts = bt.reliability.map(b => [b.mean_pred, b.mean_realized]);
+  const mx = Math.max(...pts.flat()) * 1.1;
+  const chart = lineChart(document.getElementById("rel"), [
+    { label: "ideal", color: "#24314F", points: [[0, 0], [mx, mx]], width: 1 },
+    { label: "model", color: "#5FA8D6", points: pts, width: 2 },
+  ], { yFmt: v => (100 * v).toFixed(1) + "%", yMax: mx });
+  if (chart) {
+    chart.ctx.fillStyle = "#F2C94C";
+    pts.forEach(([x, y]) => {
+      chart.ctx.beginPath();
+      chart.ctx.arc(chart.X(x), chart.Y(y), 3.5, 0, 7); chart.ctx.fill();
+    });
+  }
+  renderTable(document.getElementById("relTable"), bt.reliability, [
+    { label: "bin", get: r => fmtP(r.bin[0]) + " – " + fmtP(r.bin[1]), num: true },
+    { key: "n", label: "n", num: true },
+    { label: "mean predicted", get: r => fmtP(r.mean_pred), num: true },
+    { label: "mean realized", get: r => fmtP(r.mean_realized), num: true },
+  ]);
+  renderTable(document.getElementById("thr"), bt.per_threshold, [
+    { label: "trigger", get: r => "≥" + r.threshold_mm + "mm", num: true },
+    { key: "n", label: "n", num: true },
+    { label: "mean predicted", get: r => fmtP(r.mean_pred), num: true },
+    { label: "mean realized", get: r => fmtP(r.mean_realized), num: true },
+  ]);
+})().catch(e => { if (e.message !== "unauthorized") console.error(e); });
+</script>
+</body>
+</html>

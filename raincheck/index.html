@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RainCheck ops — dashboard</title>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+<main>
+  <h1>Dashboard</h1>
+  <p class="sub">Engine health, data freshness, book state.</p>
+  <div class="cards" id="cards"></div>
+
+  <h2>Store coverage</h2>
+  <div class="tablewrap" id="coverage"></div>
+
+  <h2>Recent job runs</h2>
+  <div class="tablewrap" id="runs"></div>
+
+  <h2>Recent ingest errors</h2>
+  <div class="tablewrap" id="errors"></div>
+</main>
+<script src="common.js?v=1"></script>
+<script>
+nav("index");
+(async () => {
+  const health = await fetch(API + "/health").then(r => r.json()).catch(() => ({}));
+  const ing = await api("/v1/status/ingest");
+  const set = await api("/v1/status/settlement");
+
+  const satCov = ing.coverage.sat || {};
+  const years = Object.keys(satCov);
+  const latest = years.length ? satCov[Math.max(...years.map(Number))] : null;
+  const states = set.policy_states || {};
+  const cards = [
+    ["API", health.ok ? "up" : "down", health.ok ? "good" : "bad"],
+    ["Model", health.model_version || "none", health.model_version ? "" : "warn"],
+    ["Latest day in store", health.store_latest_day || "—",
+      health.store_latest_day ? "" : "warn"],
+    ["ONI", ing.oni_latest ? ing.oni_latest.value.toFixed(2) +
+      " (" + ing.oni_latest.season + " " + ing.oni_latest.month + ")" : "—", ""],
+    ["Active policies", (states.active || 0) + (states.awaiting_data || 0), ""],
+    ["Settled paid / unpaid",
+      (states.settled_paid || 0) + " / " + (states.settled_unpaid || 0), ""],
+    ["Prelim↔final disagreements", set.disagreements, set.disagreements ? "bad" : "good"],
+  ];
+  document.getElementById("cards").innerHTML = cards.map(([k, v, cls]) =>
+    `<div class="card"><div class="k">${k}</div><div class="v ${cls}">${esc(v)}</div></div>`
+  ).join("");
+
+  const covRows = [];
+  for (const flavor of ["sat", "rnl"]) {
+    const cov = ing.coverage[flavor] || {};
+    for (const y of Object.keys(cov).sort((a, b) => b - a).slice(0, 6)) {
+      const c = cov[y];
+      covRows.push({ flavor, year: y, days: `${c.days}/${c.expected}`,
+        final: c.final, prelim: c.prelim, latest: c.latest,
+        pct: Math.round(100 * c.days / c.expected) });
+    }
+  }
+  renderTable(document.getElementById("coverage"), covRows, [
+    { key: "flavor", label: "flavor" }, { key: "year", label: "year", num: true },
+    { key: "days", label: "days", num: true },
+    { key: "final", label: "final", num: true }, { key: "prelim", label: "prelim", num: true },
+    { key: "latest", label: "latest day", num: true },
+    { label: "coverage", html: true,
+      get: r => `<div class="bar" style="width:120px"><i style="width:${r.pct}%"></i></div>` },
+  ]);
+  document.querySelector("#coverage p")?.remove();
+
+  renderTable(document.getElementById("runs"), ing.last_runs || [], [
+    { key: "job", label: "job" }, { key: "started_at", label: "started", num: true },
+    { key: "finished_at", label: "finished", num: true },
+    { label: "ok", get: r => r.ok == null ? "…" : (r.ok ? "✓" : "✗") },
+    { key: "summary", label: "summary" },
+  ]);
+  renderTable(document.getElementById("errors"), ing.last_errors || [], [
+    { key: "at", label: "at", num: true }, { key: "flavor", label: "flavor" },
+    { key: "day", label: "day", num: true }, { key: "note", label: "note" },
+  ]);
+})().catch(e => { if (e.message !== "unauthorized") console.error(e); });
+</script>
+</body>
+</html>

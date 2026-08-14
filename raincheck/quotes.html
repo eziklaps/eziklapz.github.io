@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RainCheck ops — quotes</title>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+<main>
+  <h1>Quotes</h1>
+  <p class="sub">Every price the engine has issued (latest 500).</p>
+  <h2>Quote log</h2>
+  <div class="tablewrap" id="quotes"></div>
+</main>
+<script src="common.js?v=1"></script>
+<script>
+nav("quotes");
+(async () => {
+  const { quotes } = await api("/v1/quotes");
+  renderTable(document.getElementById("quotes"), quotes, [
+    { key: "created_at", label: "created", num: true },
+    { label: "where", get: r => r.town || (r.lat.toFixed(3) + ", " + r.lon.toFixed(3)) },
+    { key: "insured_date", label: "insured date", num: true },
+    { label: "trigger", get: r => "≥" + r.trigger_mm + "mm", num: true },
+    { label: "payout", get: r => fmtR(r.payout_zar), num: true },
+    { label: "p̂", get: r => fmtP(r.p_hat), num: true },
+    { label: "80% CI", get: r => fmtP(r.ci80_lo) + "–" + fmtP(r.ci80_hi), num: true },
+    { label: "pure", get: r => fmtR(r.pure_premium), num: true },
+    { label: "sellable", get: r => fmtR(r.sellable_premium), num: true },
+    { label: "ONI Δ", get: r => r.oni_contribution?.toFixed(3), num: true },
+    { key: "model_version", label: "model" },
+  ]);
+})().catch(e => { if (e.message !== "unauthorized") console.error(e); });
+</script>
+</body>
+</html>

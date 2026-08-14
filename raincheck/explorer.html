@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RainCheck ops — explorer</title>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+<main>
+  <h1>Climatology explorer</h1>
+  <p class="sub">Exceedance probability through the year for a location, and a live
+    ENSO/trend-conditioned price.</p>
+
+  <div class="controls">
+    <div><label>Town</label><select id="town"></select></div>
+    <div><label>Insured date</label><input type="date" id="date"></div>
+    <div><label>Trigger (mm)</label>
+      <input type="number" id="trigger" value="10" min="1" max="30" step="1" style="width:80px"></div>
+    <div><label>Payout (R)</label>
+      <input type="number" id="payout" value="50000" min="1000" step="1000" style="width:110px"></div>
+    <button class="primary" id="price">Price this</button>
+  </div>
+
+  <canvas id="curve" height="280"></canvas>
+  <p class="sub" id="betainfo" style="margin-top:8px"></p>
+  <div id="quote"></div>
+</main>
+<script src="common.js?v=1"></script>
+<script>
+nav("explorer");
+const COLORS = { 2: "#6FCF97", 5: "#5FA8D6", 10: "#F2C94C", 20: "#EB5757" };
+let curveData = null;
+
+async function loadTowns() {
+  const { towns } = await fetch(API + "/v1/towns").then(r => r.json());
+  const sel = document.getElementById("town");
+  sel.innerHTML = towns.map(t => `<option>${esc(t.name)}</option>`).join("");
+  sel.value = "Cape Town";
+}
+
+async function drawCurve() {
+  const town = document.getElementById("town").value;
+  curveData = await api("/v1/climatology?town=" + encodeURIComponent(town));
+  const show = [2, 5, 10, 20];
+  const series = show.map(t => {
+    const ti = curveData.thresholds_mm.indexOf(t);
+    return { label: "≥" + t + "mm", color: COLORS[t],
+             points: curveData.weekly_p[ti].map((p, w) => [w, p]) };
+  });
+  const chart = lineChart(document.getElementById("curve"), series,
+    { yFmt: v => (100 * v).toFixed(0) + "%", xLabels: MONTH_TICKS });
+  // date marker
+  const d = document.getElementById("date").value;
+  if (d && chart) {
+    const doy = Math.min(Math.floor((new Date(d + "T00:00Z") -
+      new Date(d.slice(0, 4) + "-01-01T00:00Z")) / 864e5 / 7), 51);
+    chart.ctx.strokeStyle = "#D8E2F0"; chart.ctx.setLineDash([4, 4]);
+    chart.ctx.beginPath();
+    chart.ctx.moveTo(chart.X(doy), chart.Y(0));
+    chart.ctx.lineTo(chart.X(doy), chart.Y(chart.y1));
+    chart.ctx.stroke(); chart.ctx.setLineDash([]);
+  }
+  const legend = Object.entries(COLORS).map(([t, c]) =>
+    `<span style="color:${c}">■</span> ≥${t}mm`).join("&ensp;");
+  const b = curveData.beta_by_season;
+  document.getElementById("betainfo").innerHTML = legend +
+    (b ? `&emsp;|&emsp;ENSO β (log-odds/ONI): DJF ${b.DJF ?? "—"}, MAM ${b.MAM ?? "—"}, ` +
+         `JJA ${b.JJA ?? "—"}, SON ${b.SON ?? "—"}` +
+         `&emsp;trend γ/yr: ${curveData.gamma_per_year ?? "—"}` +
+         (curveData.oni_latest ? `&emsp;ONI now: ${curveData.oni_latest.value.toFixed(2)}` : "")
+       : "");
+}
+
+async function price() {
+  const body = {
+    town: document.getElementById("town").value,
+    insured_date: document.getElementById("date").value,
+    trigger_mm: Number(document.getElementById("trigger").value),
+    payout_zar: Number(document.getElementById("payout").value),
+  };
+  const el = document.getElementById("quote");
+  try {
+    const q = await api("/v1/quotes", { method: "POST", body: JSON.stringify(body) });
+    el.innerHTML = `<div class="quotebox">
+      <div class="sub">${esc(q.town || q.cell_id)} · ${q.insured_date} · ≥${q.trigger_mm}mm
+        · payout ${fmtR(q.payout_zar)} · cell ${q.cell_id}</div>
+      <div class="big">${fmtP(q.p_hat)} &rarr; ${fmtR(q.sellable_premium)}</div>
+      <div class="sub">baseline ${fmtP(q.p_baseline)}
+        &nbsp;+ ONI ${q.oni_contribution >= 0 ? "+" : ""}${q.oni_contribution}
+        (taper ${q.oni_taper}) &nbsp;+ trend ${q.trend_contribution >= 0 ? "+" : ""}${q.trend_contribution}
+        &nbsp;| 80% CI ${fmtP(q.ci80_lo)}–${fmtP(q.ci80_hi)} over ${q.n_years} years</div>
+      <div class="sub">pure ${fmtR(q.pure_premium)} · loading λ=${q.lambda}, α=${q.alpha}
+        · ${q.model_version} · quote ${q.quote_id}</div>
+    </div>`;
+  } catch (e) {
+    if (e.message !== "unauthorized")
+      el.innerHTML = `<div class="quotebox"><span class="err">${esc(e.message)}</span></div>`;
+  }
+}
+
+(async () => {
+  const d = new Date(Date.now() + 30 * 864e5);
+  document.getElementById("date").value = d.toISOString().slice(0, 10);
+  await loadTowns();
+  await drawCurve();
+  document.getElementById("town").addEventListener("change", drawCurve);
+  document.getElementById("date").addEventListener("change", drawCurve);
+  document.getElementById("price").addEventListener("click", price);
+})().catch(e => { if (e.message !== "unauthorized") console.error(e); });
+</script>
+</body>
+</html>

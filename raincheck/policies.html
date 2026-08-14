@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RainCheck ops — policies</title>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+<main>
+  <h1>Policies</h1>
+  <p class="sub">Bound cover and settlement outcomes. Payout decisions settle on the
+    prelim stream and never change; final-stream disagreement is flagged, not applied.</p>
+  <h2>Book</h2>
+  <div class="tablewrap" id="policies"></div>
+</main>
+<script src="common.js?v=1"></script>
+<script>
+nav("policies");
+const stateLabel = { active: "active", awaiting_data: "awaiting data",
+  settled_paid: "PAID", settled_unpaid: "no payout", void: "void" };
+(async () => {
+  const { policies } = await api("/v1/policies");
+  renderTable(document.getElementById("policies"), policies, [
+    { key: "policy_id", label: "policy" },
+    { key: "holder_ref", label: "holder" },
+    { label: "where", get: r => r.quote_snapshot.town ||
+        (r.quote_snapshot.cell_lat + ", " + r.quote_snapshot.cell_lon) },
+    { label: "insured date", get: r => r.quote_snapshot.insured_date, num: true },
+    { label: "trigger", get: r => "≥" + r.quote_snapshot.trigger_mm + "mm", num: true },
+    { label: "payout", get: r => fmtR(r.quote_snapshot.payout_zar), num: true },
+    { label: "premium", get: r => fmtR(r.quote_snapshot.sellable_premium), num: true },
+    { label: "state", html: true, get: r => {
+        const cls = r.state === "settled_paid" ? "paid" :
+                    r.state === "settled_unpaid" ? "unpaid" : r.state;
+        return `<span class="pill ${cls}">${stateLabel[r.state] || r.state}</span>` +
+               (r.is_test ? ` <span class="pill unpaid">test</span>` : "");
+      } },
+    { label: "measured", num: true, get: r => r.settlement
+        ? r.settlement.value_mm + "mm (" + r.settlement.stream + ")" : "—" },
+    { label: "final check", html: true, get: r => {
+        const s = r.settlement;
+        if (!s) return "—";
+        if (s.final_agrees == null) return `<span class="sub">pending final</span>`;
+        return s.final_agrees ? "✓ agrees"
+          : `<span class="pill disagree">final ${s.final_value_mm}mm disagrees</span>`;
+      } },
+  ]);
+})().catch(e => { if (e.message !== "unauthorized") console.error(e); });
+</script>
+</body>
+</html>
