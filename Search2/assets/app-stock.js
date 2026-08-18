@@ -845,6 +845,117 @@ function maxSendableInput(r, status) {
     input, " ", save);
 }
 
+/* ----- the on-click Takealot readout -----
+   The portal's exact max-sendable number still lives only on the booking
+   screen (type it into the max box), but the seller API's
+   replenishment_blocks say per DC region whether a booking would be
+   REFUSED right now (and why), and the public product page shows the
+   competing offers. webapi's /api/takealot/check/<asin> fetches both
+   live on this button — nothing polls it. */
+function advisorPlid(r) {
+  if (/^PLID\d+$/.test(r.asin)) return r.asin;
+  const url = ((r.product || {}).takealot_match || {}).url || "";
+  const m = /PLID(\d+)/.exec(url);
+  return m ? `PLID${m[1]}` : null;
+}
+
+function plidChip(plid) {
+  return el("span", { class: "hint", style: "white-space:nowrap" },
+    el("a", { class: "mono", href: `https://www.takealot.com/p/${plid}`,
+              target: "_blank", rel: "noopener",
+              title: "open the Takealot product page" }, plid),
+    el("a", { style: "cursor:pointer;margin-left:4px", title: "copy PLID",
+              onclick: (ev) => {
+                if (navigator.clipboard) navigator.clipboard.writeText(plid);
+                ev.target.textContent = "✓";
+                setTimeout(() => { ev.target.textContent = "⧉"; }, 1200);
+              } }, "⧉"));
+}
+
+function renderTakealotCheck(out, d) {
+  const lines = [];
+  const o = d.offer;
+  if (o) {
+    const bits = [`${o.sku} · ${(o.status || "?").replace(/_/g, " ")}`];
+    if (o.wishlist_30_days != null) bits.push(`♡ ${o.wishlist_30_days}/30d`);
+    const stock = (o.regions || [])
+      .map((r) => `${r.region} ${r.quantity_available ?? "—"}`).join(" / ");
+    if (stock) bits.push(`DC stock ${stock}`);
+    const sold = (o.regions || [])
+      .reduce((s, r) => s + (r.quantity_sold_30_days || 0), 0);
+    if (sold) bits.push(`sold 30d ${sold}`);
+    if (o.leadtime_units) bits.push(`leadtime stock ${o.leadtime_units}`);
+    if (o.disabled_by_takealot) bits.push("disabled by Takealot");
+    lines.push(el("div", { class: "hint" }, bits.join(" · ")));
+    const blockText = (o.blocks || []).filter((b) => b.blocked)
+      .map((b) => `${b.region} refuses (${b.reason || "?"})`).join(", ");
+    const accepting = o.accepting_regions || [];
+    if (!accepting.length) {
+      lines.push(el("div", { class: "st bad", style: "white-space:normal" },
+        `DC gate: every region refuses this SKU right now — ${blockText}. ` +
+        "A replenishment booking would bounce; don't pay a courier yet."));
+    } else {
+      lines.push(el("div", { class: "st ok", style: "white-space:normal" },
+        `DC gate: ${accepting.join(", ")} accept${accepting.length === 1 ? "s" : ""} stock`
+        + (blockText ? ` · ${blockText}` : "")
+        + " — exact max: portal booking screen"));
+    }
+  } else if (d.offer_error) {
+    lines.push(el("div", { class: "st warn", style: "white-space:normal" },
+      `Our offer: ${d.offer_error}`));
+  }
+  const m = d.market;
+  if (m) {
+    const offers = m.offers || [];
+    const prices = offers.map((x) => x.price).filter((p) => p != null);
+    const stocked = offers.filter((x) => x.dcs && x.dcs.length);
+    const lead = offers.filter((x) => x.leadtime).length;
+    const bits = [`page: ${m.offer_count} offer${m.offer_count === 1 ? "" : "s"}`];
+    if (prices.length) {
+      const lo = Math.min(...prices), hi = Math.max(...prices);
+      bits.push(lo === hi ? `R${lo}` : `R${lo}–R${hi}`);
+    }
+    if (stocked.length) {
+      const dcs = [...new Set(stocked.flatMap((x) => x.dcs))].join(", ");
+      bits.push(`${stocked.length} with DC stock (${dcs})`);
+    }
+    if (lead) bits.push(`${lead} leadtime-only`);
+    if (m.seller) {
+      bits.push(`buybox: ${m.seller}${m.seller_rating ? ` ★${m.seller_rating}` : ""}`);
+    }
+    lines.push(el("div", { class: "hint" }, bits.join(" · ")));
+  } else if (d.market_error) {
+    lines.push(el("div", { class: "hint" }, `Product page: ${d.market_error}`));
+  }
+  if (!lines.length) lines.push(el("span", { class: "hint" }, "nothing to report"));
+  out.replaceChildren(...lines);
+}
+
+function takealotCheckButton(r, out) {
+  const btn = el("button", { class: "b sm line" }, "Check Takealot");
+  btn.onclick = () => withToken(async () => {
+    const token = localStorage.getItem(PAT_KEY);
+    btn.disabled = true;
+    out.replaceChildren(el("span", { class: "hint" },
+      "checking Takealot (offer + product page)…"));
+    try {
+      const resp = await fetch(`${API_BASE}/api/takealot/check/${r.asin}`, {
+        headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+      if (!resp.ok) {
+        let detail = `HTTP ${resp.status}`;
+        try { detail = (await resp.json()).detail || detail; } catch (e) { /* keep */ }
+        throw new Error(detail);
+      }
+      renderTakealotCheck(out, await resp.json());
+    } catch (e) {
+      out.replaceChildren(
+        el("span", { class: "st bad" }, `Check failed: ${e.message}`));
+    }
+    btn.disabled = false;
+  });
+  return btn;
+}
+
 function renderSendAdvisor(root, m) {
   const advice = sendAdvice(m);
   if (!advice.length) return; // nothing stocked + live — no advice to give
@@ -880,12 +991,19 @@ function renderSendAdvisor(root, m) {
             : units ? "" : "nothing to send"));
     panel.append(head);
     for (const a of g.rows) {
+      const plid = a.channel === "takealot" ? advisorPlid(a.r) : null;
+      const out = a.askMax
+        ? el("div", { class: "rowsub", style: "margin:0 0 4px" }) : null;
       panel.append(el("div", { class: "flowrow", style: "align-items:center" },
         el("span", { style: "flex:1;min-width:0" },
           el("span", { style: "font-weight:600" },
             `${a.r.title || a.r.asin} — send ${a.qty}`),
+          plid ? el("span", {}, " · ", plidChip(plid)) : null,
           el("span", { class: "rowsub", style: "display:block" }, a.why)),
+        a.askMax && a.channel === "takealot"
+          ? takealotCheckButton(a.r, out) : null,
         a.askMax ? maxSendableInput(a.r, status) : null));
+      if (out) panel.append(out);
     }
   }
   panel.append(status);
