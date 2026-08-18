@@ -4,12 +4,12 @@ import {
   CATEGORIES, CAT_BY_ID, GROUP_LABELS, GROUP_INDEX, GROUP_DEPRECIATION,
   BASES, WEALTH_CATEGORY_IDS, SMALL_ITEM_THRESHOLD,
   categoriesByGroup, defaultBasisFor,
-} from './bgr7.js';
+} from './bgr7.js?v=2';
 import {
   money, costBase, writeOffPeriod, depreciate, schedule, replacementValue,
   assetView, portfolio, averageClause,
-} from './calc.js';
-import * as store from './store.js';
+} from './calc.js?v=2';
+import * as store from './store.js?v=2';
 
 /* ---------------- state ---------------- */
 
@@ -66,7 +66,22 @@ function fillCategorySelect(sel, onlyIds = null) {
 
 /* ---------------- boot ---------------- */
 
+/* Elements boot cannot run without. If any is missing, the page the browser
+ * is showing is not the page this script was written for — a stale cached
+ * copy, or something (an extension, a translator) rewrote the DOM. Naming
+ * the missing piece beats guessing. */
+const REQUIRED = [
+  '#clientSelect', '#regTitle', '#sumBook', '#sumInsured', '#statStrip',
+  '#avgOut', '#regBody', '#fCat', '#fBasis', '#rates', '#depRates',
+  '#qaCat', '#brokerBody', '#valCards', '#toast',
+];
+
 async function boot() {
+  const missing = REQUIRED.filter((sel) => !document.querySelector(sel));
+  if (missing.length) {
+    throw new Error(
+      `this browser is showing an out-of-date copy of the page (missing ${missing.join(', ')})`);
+  }
   const clients = await store.seedIfEmpty();
   state.clientId = clients[0].id;
 
@@ -1066,6 +1081,9 @@ function wireEvents() {
 
 boot().catch((err) => {
   console.error(err);
+  const hint = location.protocol === 'file:'
+    ? 'You opened the file directly. Run "python -m http.server 8811 --directory grib" and open http://localhost:8811 — or use the live link at andrewwalsh.co.za/grib/.'
+    : 'Hard-refresh the page (Ctrl+Shift+R). If it persists, a browser extension may be altering the page.';
   document.body.insertAdjacentHTML('afterbegin',
-    `<div class="mockbanner" style="background:#AC3626">Could not start: ${esc(err.message)}. This page needs to be served over http:// — open it with a local server, not as a file.</div>`);
+    `<div class="mockbanner" style="background:#AC3626">Could not start: ${esc(err.message)}. ${hint}</div>`);
 });

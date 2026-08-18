@@ -10,7 +10,7 @@
 import {
   CAT_BY_ID, SMALL_ITEM_THRESHOLD, VAT_RATE, RESIDUAL_FLOOR, BASES,
   indexRateFor, depreciationRateFor, defaultBasisFor,
-} from './bgr7.js';
+} from './bgr7.js?v=2';
 
 const MONTH_DAYS = 30.44;
 
