@@ -118,6 +118,45 @@ function renderTabs() {
 /* TAB 1 — MY REGISTER                                               */
 /* ================================================================= */
 
+/* The stat strip. Split out of renderRegister because the policy-sum field
+ * edits one of these figures live, and re-running the whole register (asset
+ * table + photo hydration) on every keystroke to refresh one number is waste. */
+function renderStrip(c, p) {
+  /* The number that actually decides a claim: what the schedule says against
+   * what it costs to replace. Book-vs-replacement is the story; this is the
+   * diagnostic, so it leads. Agreed-value items sit outside the average
+   * clause, so this runs against the averaged pool only. */
+  const adq = averageClause(c.policySumInsured, p.averaged, 0);
+  const onPolicy = Number(c.policySumInsured) > 0;
+
+  const stats = [
+    onPolicy
+      ? { lab: 'Policy vs replacement', val: pct(adq.adequacy * 100, 0),
+          sub: `${money(c.policySumInsured)} against ${money(p.averaged)}`,
+          cls: adq.adequacy < 0.75 ? 'crit' : (adq.isUnder || adq.isOver) ? 'warn' : 'ok' }
+      : { lab: 'Policy vs replacement', val: '—',
+          sub: 'Add your sum insured below', cls: 'warn' },
+    { lab: 'Total paid', val: money(p.cost), sub: 'Historic cost, VAT included', cls: '' },
+    { lab: "This year's write-off", val: money(p.allowance),
+      sub: c.taxRate ? `Worth ${money(p.taxValue)} at ${Math.round(c.taxRate * 100)}%` : 'Deduction claimable', cls: 'accent' },
+    { lab: 'Photographed', val: pct(p.completeness), sub: `${p.missingPhoto} still need a photo`,
+      cls: p.completeness === 100 ? 'ok' : p.missingPhoto > p.count / 2 ? 'crit' : 'warn' },
+    { lab: 'Serials captured', val: `${p.count - p.missingSerial}/${p.count}`,
+      sub: p.missingSerial ? `${p.missingSerial} missing` : 'Complete',
+      cls: p.missingSerial ? 'warn' : 'ok' },
+  ];
+  if (p.needsValuation) {
+    stats.push({ lab: 'Valuations needed', val: String(p.needsValuation),
+      sub: 'Jewellery, watches, art', cls: 'warn' });
+  }
+  $('#statStrip').innerHTML = stats.map((s) => `
+    <div class="stat ${s.cls}">
+      <p class="stat-lab">${esc(s.lab)}</p>
+      <p class="stat-val">${esc(s.val)}</p>
+      <p class="stat-sub">${esc(s.sub)}</p>
+    </div>`).join('');
+}
+
 function renderRegister() {
   const c = state.client;
   if (!c) return;
@@ -134,30 +173,8 @@ function renderRegister() {
   $('#sumInsuredFoot').textContent = c.sumInsuredExVat
     ? 'Cost to replace today, excluding VAT.'
     : 'Cost to replace today, VAT included.';
-  $('#sumGapTag').textContent = `${money(p.gap)} apart`;
 
-  /* stat strip */
-  const strip = $('#statStrip');
-  const stats = [
-    { lab: 'Total paid', val: money(p.cost), sub: 'Historic cost, VAT included', cls: '' },
-    { lab: "This year's write-off", val: money(p.allowance),
-      sub: c.taxRate ? `Worth ${money(p.taxValue)} at ${Math.round(c.taxRate * 100)}%` : 'Deduction claimable', cls: 'accent' },
-    { lab: 'Photographed', val: pct(p.completeness), sub: `${p.missingPhoto} still need a photo`,
-      cls: p.completeness === 100 ? 'ok' : p.missingPhoto > p.count / 2 ? 'crit' : 'warn' },
-    { lab: 'Serials captured', val: `${p.count - p.missingSerial}/${p.count}`,
-      sub: p.missingSerial ? `${p.missingSerial} missing` : 'Complete',
-      cls: p.missingSerial ? 'warn' : 'ok' },
-  ];
-  if (p.needsValuation) {
-    stats.push({ lab: 'Valuations needed', val: String(p.needsValuation),
-      sub: 'Jewellery, watches, art', cls: 'warn' });
-  }
-  strip.innerHTML = stats.map((s) => `
-    <div class="stat ${s.cls}">
-      <p class="stat-lab">${esc(s.lab)}</p>
-      <p class="stat-val">${esc(s.val)}</p>
-      <p class="stat-sub">${esc(s.sub)}</p>
-    </div>`).join('');
+  renderStrip(c, p);
 
   /* average clause */
   $('#policySum').value = c.policySumInsured || 0;
@@ -198,7 +215,7 @@ function renderRegister() {
         <td class="num">${v.dep.years} yr</td>
         <td class="num v-book">${money(v.dep.book)}</td>
         <td class="num v-ins">${money(v.rep.value)}</td>
-        <td class="num v-gap">${money(v.gap)}</td>
+        <td class="num v-spread">${money(v.spread)}</td>
         <td class="chev" aria-hidden="true">›</td>
       </tr>`;
   }).join('');
@@ -308,7 +325,7 @@ async function renderBroker() {
     { lab: 'On policy', val: money(totPolicy), sub: `${pct(groupAdequacy * 100, 0)} of replacement`,
       cls: groupAdequacy < 0.75 ? 'crit' : groupAdequacy < 0.98 ? 'warn' : 'ok' },
     { lab: 'Book value', val: money(totBook), sub: 'What the accountants carry', cls: '' },
-    { lab: 'Need chasing', val: String(chases), sub: 'Registers with gaps', cls: chases ? 'warn' : 'ok' },
+    { lab: 'Need chasing', val: String(chases), sub: 'Items still outstanding', cls: chases ? 'warn' : 'ok' },
   ].map((s) => `
     <div class="stat ${s.cls}">
       <p class="stat-lab">${esc(s.lab)}</p>
@@ -414,7 +431,6 @@ function renderFree() {
   const p = portfolio(state.quick, FREE_PROFILE);
   $('#freeBook').textContent = money(p.book);
   $('#freeInsured').textContent = money(p.replacement);
-  $('#freeGapTag').textContent = `${money(p.gap)} apart`;
   const many = p.count !== 1;
   $('#freeSay').innerHTML =
     `You paid <b>${money(p.cost)}</b> for ${many ? `these ${p.count} items` : 'this item'}. ` +
@@ -1017,7 +1033,9 @@ function wireEvents() {
   });
   $('#policySum').addEventListener('input', async (e) => {
     state.client = { ...state.client, policySumInsured: Number(e.target.value) || 0 };
-    renderAverage(portfolio(state.assets, state.client));
+    const p = portfolio(state.assets, state.client);
+    renderStrip(state.client, p);
+    renderAverage(p);
   });
   $('#policySum').addEventListener('change', async () => {
     await store.putClient(state.client);

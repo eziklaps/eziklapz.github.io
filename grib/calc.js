@@ -172,7 +172,7 @@ function schedule(asset, profile, extraYears = 2) {
       allowance: d.accumulated - prevAccum,
       book: d.book,
       replacement: r.value,
-      gap: r.value - d.book,
+      spread: r.value - d.book,
       replacementRise: prevRepl === null ? 0 : r.value - prevRepl,
     });
     prevAccum = d.accumulated;
@@ -297,7 +297,7 @@ function assetView(asset, profile, asOf = new Date()) {
   const rep = replacementValue(asset, profile, asOf);
   return {
     asset, cost: cb, dep, rep,
-    gap: rep.value - dep.book,
+    spread: rep.value - dep.book,
     /* If you insured at cost and never moved it, this is your shortfall. */
     staleShortfall: Math.max(0, rep.value - cb.gross),
     staleAdequacy: rep.value > 0 ? cb.gross / rep.value : 1,
@@ -332,7 +332,7 @@ function portfolio(assets, profile, asOf = new Date()) {
     count: assets.length,
     cost, base, book, replacement, allowance, taxValue,
     agreed, averaged, incompleteBasis, staleCerts,
-    gap: replacement - book,
+    spread: replacement - book,
     missingPhoto, missingSerial, needsValuation, fullyWritten,
     completeness: assets.length
       ? Math.round(((assets.length - missingPhoto) / assets.length) * 100)
