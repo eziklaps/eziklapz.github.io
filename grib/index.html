@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset Register — Garden Route Insurance Brokers</title>
+<meta name="description" content="Concept demo: photograph what you own, and see both what SARS lets you write off and what it now costs to replace.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- ============ MOCKUP BANNER ============ -->
+<div class="mockbanner" role="note">
+  <strong>Concept demo — not a live service.</strong>
+  Built by Andrew Walsh as a proposal for Garden Route Insurance Brokers, and hosted on
+  andrewwalsh.co.za. Everything you enter stays in this browser; nothing is uploaded, and no
+  cover is quoted or bound. The calculations are real: SARS BGR&nbsp;7 periods and live
+  depreciation maths.
+  <button type="button" class="linkbtn" data-action="reset">Reset demo data</button>
+</div>
+
+<!-- ============ HEADER ============ -->
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">GRIB</span>
+      <span class="brand-txt">
+        <b>Asset Register</b>
+        <i>Garden Route Insurance Brokers · FSP 15438</i>
+      </span>
+    </div>
+    <div class="topbar-right">
+      <label class="clientpick">
+        <span>Register</span>
+        <select id="clientSelect" aria-label="Choose a register"></select>
+      </label>
+      <button type="button" class="btn ghost sm" data-action="settings">Assumptions</button>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button role="tab" class="tab" data-tab="register" aria-selected="true">
+      My register <span class="tabnote">business owner</span>
+    </button>
+    <button role="tab" class="tab" data-tab="broker" aria-selected="false">
+      Broker console <span class="tabnote">GRIB staff</span>
+    </button>
+    <button role="tab" class="tab" data-tab="valuables" aria-selected="false">
+      Valuables <span class="tabnote">all&#8209;risk</span>
+    </button>
+    <button role="tab" class="tab" data-tab="free" aria-selected="false">
+      Free register <span class="tabnote">prospect</span>
+    </button>
+  </nav>
+</header>
+
+<main id="main">
+
+  <!-- ================================================================= -->
+  <!-- TAB 1 — MY REGISTER (the deep one)                                -->
+  <!-- ================================================================= -->
+  <section class="view" id="view-register" data-view="register">
+
+    <div class="viewhead">
+      <div>
+        <p class="eyebrow">Business asset register</p>
+        <h1 id="regTitle">Your register</h1>
+        <p class="sub" id="regSub"></p>
+      </div>
+      <div class="viewhead-actions">
+        <button type="button" class="btn primary" data-action="add">Add an asset</button>
+        <button type="button" class="btn ghost" data-action="export-menu">Export</button>
+      </div>
+    </div>
+
+    <!-- the headline pair -->
+    <div class="pair">
+      <div class="pairside book">
+        <p class="pairlab">Written down to — for your accountant</p>
+        <p class="pairnum" id="sumBook">R 0</p>
+        <p class="pairfoot" id="sumBookFoot">SARS s11(e) book value across the register</p>
+      </div>
+      <div class="pairvs" aria-hidden="true">
+        <span class="pairvs-line"></span>
+        <span class="pairvs-tag" id="sumGapTag">gap</span>
+        <span class="pairvs-line"></span>
+      </div>
+      <div class="pairside insured">
+        <p class="pairlab">Must be insured for — for your policy</p>
+        <p class="pairnum" id="sumInsured">R 0</p>
+        <p class="pairfoot" id="sumInsuredFoot">Current cost to replace the same items</p>
+      </div>
+    </div>
+
+    <!-- stat strip -->
+    <div class="strip" id="statStrip"></div>
+
+    <!-- underinsurance check -->
+    <div class="panel" id="avgPanel">
+      <div class="panel-head">
+        <div>
+          <h2>Are you underinsured?</h2>
+          <p class="panel-sub">Your payout is <b>sum insured ÷ replacement value × the loss</b>. Move the slider to see what a partial loss actually pays.</p>
+        </div>
+        <span class="pill" id="avgPill">—</span>
+      </div>
+      <div class="avg-grid">
+        <div class="avg-inputs">
+          <label class="field">
+            <span>Sum insured on your current policy</span>
+            <input type="number" id="policySum" min="0" step="10000" inputmode="numeric">
+          </label>
+          <label class="field">
+            <span>Loss to model <i id="lossOut"></i></span>
+            <input type="range" id="lossRange" min="10000" max="1000000" step="10000" value="250000">
+          </label>
+        </div>
+        <div class="avg-out" id="avgOut"></div>
+      </div>
+    </div>
+
+    <!-- register table -->
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Every asset, both numbers</h2>
+          <p class="panel-sub">Sorted newest first. Click a row to open it.</p>
+        </div>
+        <label class="searchbox">
+          <input type="search" id="regSearch" placeholder="Search name, serial, room…" aria-label="Search the register">
+        </label>
+      </div>
+      <div class="tscroll">
+        <table class="reg">
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th>Category</th>
+              <th class="num">Paid</th>
+              <th class="num">Write&#8209;off</th>
+              <th class="num">Book value</th>
+              <th class="num">Sum insured</th>
+              <th class="num">Gap</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="regBody"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="regEmpty" hidden>Nothing here yet. <button type="button" class="linkbtn" data-action="add">Add your first asset</button>.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <!-- TAB 2 — BROKER CONSOLE                                            -->
+  <!-- ================================================================= -->
+  <section class="view" id="view-broker" data-view="broker" hidden>
+    <div class="viewhead">
+      <div>
+        <p class="eyebrow">Internal · GRIB staff</p>
+        <h1>Broker console</h1>
+        <p class="sub">Every client register in one place, with what still needs chasing before renewal.</p>
+      </div>
+      <div class="viewhead-actions">
+        <button type="button" class="btn primary" data-action="new-client">Add a client</button>
+      </div>
+    </div>
+
+    <div class="strip" id="brokerStrip"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Client registers</h2>
+          <p class="panel-sub">Adequacy is the register's replacement total against the sum insured on the policy.</p>
+        </div>
+      </div>
+      <div class="tscroll">
+        <table class="reg">
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>Sector</th>
+              <th class="num">Items</th>
+              <th class="num">Book value</th>
+              <th class="num">Replacement</th>
+              <th class="num">On policy</th>
+              <th>Adequacy</th>
+              <th>Chase</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="brokerBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Capture on behalf of a client</h2>
+          <p class="panel-sub">Site visits and renewal reviews. Every entry is stamped with who captured it.</p>
+        </div>
+      </div>
+      <div class="onbehalf">
+        <label class="field">
+          <span>Capturing as</span>
+          <select id="capturedBy">
+            <option>Liz Roberts — Personal Lines</option>
+            <option>Alexa George — Commercial</option>
+            <option>Alix Goss — Commercial</option>
+            <option>Shirley Viljoen — Commercial Admin</option>
+            <option>Josh De Kock — Private Wealth</option>
+            <option>Sandra Anderson — Claims</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>For client</span>
+          <select id="onBehalfClient"></select>
+        </label>
+        <button type="button" class="btn primary" data-action="capture-start">Open their register</button>
+      </div>
+      <p class="note" id="capturedNote"></p>
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <!-- TAB 3 — VALUABLES / ALL-RISK                                      -->
+  <!-- ================================================================= -->
+  <section class="view" id="view-valuables" data-view="valuables" hidden>
+    <div class="viewhead">
+      <div>
+        <p class="eyebrow">Personal lines · specified all-risk</p>
+        <h1>Valuables schedule</h1>
+        <p class="sub">The items an insurer wants listed individually — a description, a serial, a sum insured, and a valuation certificate where it matters.</p>
+      </div>
+      <div class="viewhead-actions">
+        <button type="button" class="btn primary" data-action="add-valuable">Add a valuable</button>
+      </div>
+    </div>
+
+    <div class="strip" id="valStrip"></div>
+
+    <div class="panel warn-panel" id="valWarn" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>Valuation certificates outstanding</h2>
+          <p class="panel-sub">Insurers routinely decline or discount jewellery, watch and art claims where no certificate was lodged. We store it against the item — we don't replace it.</p>
+        </div>
+      </div>
+      <ul class="certlist" id="certList"></ul>
+    </div>
+
+    <div class="cards" id="valCards"></div>
+    <p class="empty" id="valEmpty" hidden>No valuables specified on this register yet.</p>
+  </section>
+
+  <!-- ================================================================= -->
+  <!-- TAB 4 — FREE REGISTER (prospect funnel)                           -->
+  <!-- ================================================================= -->
+  <section class="view" id="view-free" data-view="free" hidden>
+    <div class="freehero">
+      <p class="eyebrow">Free tool · no account needed</p>
+      <h1>What would it cost to replace everything in your business today?</h1>
+      <p class="lede">Most Southern Cape businesses are insured for what they paid, not what it now costs to
+        buy again. Photograph a few of your biggest items and we'll show you the gap — and what SARS lets you
+        write off while we're at it.</p>
+      <ol class="steps">
+        <li><b>Add your kit.</b> Photo, price, date. Thirty seconds an item.</li>
+        <li><b>See both numbers.</b> Your write-off, and your real sum insured.</li>
+        <li><b>We check your cover.</b> Only if you want us to.</li>
+      </ol>
+    </div>
+
+    <div class="freeflow">
+      <div class="panel">
+        <div class="panel-head"><div><h2>Add a few items</h2>
+          <p class="panel-sub">Three or four of your most expensive things is enough to show the pattern.</p></div></div>
+        <div class="quickadd" id="quickAdd">
+          <label class="field">
+            <span>What is it?</span>
+            <input type="text" id="qaName" placeholder="Combi oven, excavator, laptop…">
+          </label>
+          <label class="field">
+            <span>Category</span>
+            <select id="qaCat"></select>
+          </label>
+          <label class="field narrow">
+            <span>What you paid</span>
+            <input type="number" id="qaPaid" min="0" step="500" inputmode="numeric" placeholder="0">
+          </label>
+          <label class="field narrow">
+            <span>When</span>
+            <input type="date" id="qaDate">
+          </label>
+          <button type="button" class="btn primary" data-action="qa-add">Add</button>
+        </div>
+        <ul class="qalist" id="qaList"></ul>
+      </div>
+
+      <div class="panel reveal" id="freeResult" hidden>
+        <div class="panel-head"><div><h2>Here's your gap</h2>
+          <p class="panel-sub">Based on SARS BGR 7 write-off periods and our replacement-cost assumptions.</p></div></div>
+        <div class="pair compact">
+          <div class="pairside book">
+            <p class="pairlab">Book value</p>
+            <p class="pairnum" id="freeBook">R 0</p>
+          </div>
+          <div class="pairvs" aria-hidden="true"><span class="pairvs-line"></span><span class="pairvs-tag" id="freeGapTag"></span><span class="pairvs-line"></span></div>
+          <div class="pairside insured">
+            <p class="pairlab">Cost to replace today</p>
+            <p class="pairnum" id="freeInsured">R 0</p>
+          </div>
+        </div>
+        <p class="freesay" id="freeSay"></p>
+        <div class="cta">
+          <div>
+            <h3>Want us to check your policy against this?</h3>
+            <p>One of our commercial brokers will compare these values to your current schedule. No obligation, and we'll tell you if you're already covered properly.</p>
+          </div>
+          <form class="ctaform" id="leadForm" novalidate>
+            <label class="field"><span>Your name</span><input type="text" id="leadName" autocomplete="name" required></label>
+            <label class="field"><span>Business</span><input type="text" id="leadBiz" autocomplete="organization"></label>
+            <label class="field"><span>Email or mobile</span><input type="text" id="leadContact" required></label>
+            <label class="consent">
+              <input type="checkbox" id="leadConsent" required>
+              <span>I'm happy for Garden Route Insurance Brokers to contact me about this register. <a href="#" data-action="popia">How we handle your information</a>.</span>
+            </label>
+            <button type="submit" class="btn primary">Send it to GRIB</button>
+            <p class="formerr" id="leadErr" hidden></p>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <p><b>Not advice.</b> Replacement values here are indications for discussion with your broker, not a quote
+     or a professional valuation. Write-off figures are estimates based on SARS Binding General Ruling 7
+     (Issue 4) and do not replace your accountant.</p>
+  <p>Branding shown as it would appear if adopted. Garden Route Insurance Brokers is an authorised
+     Financial Services Provider, FSP 15438, at Unit 2 Quayside Office Park, cnr Hedge &amp; Gordon,
+     Knysna 6570.</p>
+  <p><b>This page is a demonstration prototype</b> prepared by Andrew Walsh for discussion with GRIB.
+     It is not operated by Garden Route Insurance Brokers, holds no client data, and should not be
+     relied on for any insurance or tax decision.</p>
+</footer>
+
+<!-- ============ ASSET DRAWER ============ -->
+<div class="scrim" id="scrim" hidden></div>
+
+<aside class="drawer" id="drawer" hidden aria-labelledby="drawerTitle" role="dialog" aria-modal="true">
+  <div class="drawer-head">
+    <div>
+      <p class="eyebrow" id="drawerKind">New asset</p>
+      <h2 id="drawerTitle">Add an asset</h2>
+    </div>
+    <button type="button" class="iconbtn" data-action="close-drawer" aria-label="Close">&times;</button>
+  </div>
+
+  <form class="drawer-body" id="assetForm" novalidate>
+    <input type="hidden" id="fId">
+
+    <!-- photos -->
+    <fieldset class="fs">
+      <legend>Photographs</legend>
+      <p class="fshint">This is the part that saves a claim. Get the item, and get the serial plate.</p>
+      <div class="shots" id="shots"></div>
+      <label class="dropzone" for="fPhoto">
+        <input type="file" id="fPhoto" accept="image/*" capture="environment" multiple hidden>
+        <span class="dz-icon" aria-hidden="true">+</span>
+        <span class="dz-txt"><b>Take a photo</b> or choose files<i>Resized to 1600px and kept on this device</i></span>
+      </label>
+    </fieldset>
+
+    <!-- identity -->
+    <fieldset class="fs">
+      <legend>What it is</legend>
+      <label class="field"><span>Description</span>
+        <input type="text" id="fName" required placeholder="Rational combi oven SCC 101"></label>
+      <div class="row">
+        <label class="field"><span>Category <i>sets the SARS write-off period</i></span>
+          <select id="fCat" required></select></label>
+        <label class="field narrow"><span>Where it is</span>
+          <input type="text" id="fRoom" placeholder="Kitchen"></label>
+      </div>
+      <label class="field"><span>Serial / IMEI / VIN <i>insurers ask for this on specified items</i></span>
+        <input type="text" id="fSerial" placeholder="RAT-101-88214"></label>
+    </fieldset>
+
+    <!-- money -->
+    <fieldset class="fs">
+      <legend>What it cost</legend>
+      <div class="row">
+        <label class="field"><span>List price / RRP <i>drives the insurance value</i></span>
+          <input type="number" id="fList" min="0" step="100" inputmode="numeric" placeholder="0"></label>
+        <label class="field"><span>What you actually paid <i>drives the SARS write-off</i></span>
+          <input type="number" id="fPaid" min="0" step="100" inputmode="numeric" required placeholder="0"></label>
+      </div>
+      <p class="discountnote" id="discountNote" hidden></p>
+      <div class="row">
+        <label class="field"><span>Purchase date</span>
+          <input type="date" id="fDate" required></label>
+        <label class="field narrow"><span>Write-off method</span>
+          <select id="fMethod">
+            <option value="">Use register default</option>
+            <option value="sl">Straight line</option>
+            <option value="dv">Diminishing value</option>
+          </select></label>
+      </div>
+      <div class="checks">
+        <label class="check"><input type="checkbox" id="fInclVat" checked>
+          <span>Price includes VAT</span></label>
+        <label class="check"><input type="checkbox" id="fSet">
+          <span>Part of a set <i>a set can't be split to get under R7 000</i></span></label>
+      </div>
+    </fieldset>
+
+    <!-- how it's insured -->
+    <fieldset class="fs">
+      <legend>How it's insured</legend>
+      <label class="field"><span>Basis of the sum insured</span>
+        <select id="fBasis"></select></label>
+      <p class="basisblurb" id="basisBlurb"></p>
+
+      <div class="basiscompare" id="basisCompare"></div>
+
+      <div class="row" id="agreedRow" hidden>
+        <label class="field"><span>Agreed sum <i>off the certificate</i></span>
+          <input type="number" id="fAgreed" min="0" step="500" inputmode="numeric" placeholder="0"></label>
+        <label class="field"><span>Date valued</span>
+          <input type="date" id="fValDate"></label>
+      </div>
+
+      <label class="field" id="manualRow" hidden><span>Your figure</span>
+        <input type="number" id="fRepl" min="0" step="500" inputmode="numeric" placeholder="0"></label>
+
+      <label class="field"><span>Valuation certificate reference</span>
+        <input type="text" id="fCert" placeholder="e.g. GIA 2188410"></label>
+    </fieldset>
+
+    <!-- overrides -->
+    <fieldset class="fs">
+      <legend>Overrides <i class="opt">optional</i></legend>
+      <div class="row">
+        <label class="field"><span>Write-off period, years <i>SARS wants a motivation to shorten it</i></span>
+          <input type="number" id="fYears" min="1" max="30" step="1" placeholder="from BGR 7"></label>
+        <label class="field"><span>Replacement inflation, % a year <i>overrides the category</i></span>
+          <input type="number" id="fIndex" min="-20" max="40" step="0.5" placeholder="from category"></label>
+      </div>
+      <label class="field"><span>Wear-and-tear rate for indemnity, % a year</span>
+        <input type="number" id="fDep" min="0" max="60" step="1" placeholder="from category"></label>
+    </fieldset>
+
+    <!-- live reveal -->
+    <div class="liveout" id="liveOut" hidden></div>
+
+    <div class="drawer-foot">
+      <button type="button" class="btn ghost danger" data-action="delete-asset" id="delBtn" hidden>Delete</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" data-action="close-drawer">Cancel</button>
+      <button type="submit" class="btn primary" id="saveBtn">Save asset</button>
+    </div>
+    <p class="formerr" id="formErr" hidden></p>
+  </form>
+</aside>
+
+<!-- ============ SETTINGS DRAWER ============ -->
+<aside class="drawer" id="settings" hidden aria-labelledby="setTitle" role="dialog" aria-modal="true">
+  <div class="drawer-head">
+    <div>
+      <p class="eyebrow">Every one of these is negotiable</p>
+      <h2 id="setTitle">Assumptions</h2>
+    </div>
+    <button type="button" class="iconbtn" data-action="close-settings" aria-label="Close">&times;</button>
+  </div>
+  <div class="drawer-body">
+    <fieldset class="fs">
+      <legend>This register</legend>
+      <label class="field"><span>Client / register name</span><input type="text" id="sName"></label>
+      <div class="row">
+        <label class="field"><span>Sector</span><input type="text" id="sSector"></label>
+        <label class="field"><span>Town</span><input type="text" id="sTown"></label>
+      </div>
+      <label class="field"><span>Sum insured on the current policy</span>
+        <input type="number" id="sPolicy" min="0" step="10000" inputmode="numeric"></label>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>Tax treatment</legend>
+      <div class="checks">
+        <label class="check"><input type="checkbox" id="sVat">
+          <span>VAT-registered vendor <i>input VAT comes out of the write-off base</i></span></label>
+        <label class="check"><input type="checkbox" id="sSumExVat">
+          <span>Set sums insured excluding VAT <i>usual for a vendor who can claim it back</i></span></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Default write-off method</span>
+          <select id="sMethod">
+            <option value="sl">Straight line</option>
+            <option value="dv">Diminishing value</option>
+          </select></label>
+        <label class="field"><span>Tax rate for the saving figure</span>
+          <select id="sTax">
+            <option value="0.27">Company — 27%</option>
+            <option value="0.45">Individual, top bracket — 45%</option>
+            <option value="0.36">Individual, mid bracket — 36%</option>
+            <option value="0">Don't show a tax saving</option>
+          </select></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>Replacement-cost inflation</legend>
+      <p class="fshint">Applied per category group to turn a purchase price into today's cost. These are our
+        assumptions, not SARS figures — agree them with GRIB and they become the house standard.</p>
+      <div class="rates" id="rates"></div>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>Wear and tear, for indemnity values</legend>
+      <p class="fshint">Only used when an item is insured on an indemnity basis. Nothing to do with SARS —
+        an insurer never writes an item down to nil while it is still in use, so these are floored at 20%.</p>
+      <div class="rates" id="depRates"></div>
+    </fieldset>
+
+    <div class="drawer-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" data-action="close-settings">Close</button>
+      <button type="button" class="btn primary" data-action="save-settings">Apply</button>
+    </div>
+  </div>
+</aside>
+
+<!-- ============ EXPORT SHEET ============ -->
+<aside class="drawer narrowdrawer" id="exportSheet" hidden role="dialog" aria-modal="true" aria-labelledby="expTitle">
+  <div class="drawer-head">
+    <div>
+      <p class="eyebrow">Same data, two audiences</p>
+      <h2 id="expTitle">Export</h2>
+    </div>
+    <button type="button" class="iconbtn" data-action="close-export" aria-label="Close">&times;</button>
+  </div>
+  <div class="drawer-body">
+    <button type="button" class="exportcard" data-action="csv-accountant">
+      <b>For your accountant</b>
+      <span>Cost base excluding VAT, method, BGR 7 period, allowance this year, accumulated allowance, book value. CSV.</span>
+    </button>
+    <button type="button" class="exportcard" data-action="csv-insurer">
+      <b>For GRIB / your insurer</b>
+      <span>Description, category, serial, purchase date, sum insured, photograph count, valuation certificate. CSV.</span>
+    </button>
+    <button type="button" class="exportcard" data-action="print">
+      <b>Printable schedule</b>
+      <span>Both value tracks on one page, with the underinsurance check. Print or save as PDF to attach to a renewal.</span>
+    </button>
+    <p class="note">A real deployment would sign these and email them straight into the renewal file.</p>
+  </div>
+</aside>
+
+<div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
