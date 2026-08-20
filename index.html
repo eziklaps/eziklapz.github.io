@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Andrew Walsh — Actuarial Science &amp; Software</title>
-  <meta name="description" content="Andrew Walsh — actuarial science student at Stellenbosch University building automated, data-driven e-commerce systems.">
+  <title>Andrew Walsh — Actuarial Science &amp; Mathematics</title>
+  <meta name="description" content="Andrew Walsh — BCom Actuarial Science and Mathematics at Stellenbosch. Pricing, data, and production systems.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%232a78d6' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%230ca30c'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -235,6 +235,10 @@
       border: 1px solid var(--hairline); border-radius: 999px; padding: 1px 9px;
     }
 
+    /* ---- pages list (reuses .doors / .door) ---- */
+    #pages .door .name { flex-wrap: wrap; }
+    #pages .door .chip { padding: 2px 10px; font-size: 11.5px; }
+
     /* ---- work grid ---- */
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
     .card {
@@ -256,6 +260,7 @@
     .about { display: grid; grid-template-columns: 1fr; gap: 28px; }
     @media (min-width: 720px) { .about { grid-template-columns: 3fr 2fr; } }
     .about p { margin: 0; color: var(--ink-2); font-size: 16.5px; }
+    .about p + p { margin-top: 16px; }
     .facts { border-left: 1px solid var(--hairline); padding-left: 28px; align-self: start; }
     @media (max-width: 719px) { .facts { border-left: none; padding-left: 0; } }
     .facts dl { margin: 0; display: grid; gap: 14px; }
@@ -289,10 +294,11 @@
   <nav class="top" aria-label="Site">
     <div class="wrap">
       <a class="wordmark" href="/">Andrew Walsh</a>
-      <ul>
+      <ul id="nav-links">
         <li class="optional"><a href="#search2">Search2</a></li>
         <li class="optional"><a href="#about">About</a></li>
         <li class="optional"><a href="#work">Work</a></li>
+        <li class="optional"><a href="#pages">Pages</a></li>
         <li><a class="navlive" href="/Search2/app/"><span class="dot" aria-hidden="true"></span>Live</a></li>
       </ul>
     </div>
@@ -303,9 +309,9 @@
     <header class="hero">
       <p class="kicker rise">Stellenbosch, South Africa</p>
       <h1 class="rise d1">Andrew Walsh</h1>
-      <p class="tagline rise d2">Actuarial science student building automated, data-driven
-        systems — including a live e-commerce pipeline that finds, prices and
-        orders products across two marketplaces on its own.</p>
+      <p class="tagline rise d2">BCom Actuarial Science and Mathematics at Stellenbosch.
+        I ship automated systems — including the live e-commerce pipeline that
+        finds, prices and orders products on its own.</p>
       <div class="cta rise d3">
         <a class="btn" href="/Search2/app/">
           Open the live console
@@ -377,13 +383,13 @@
         <h2 id="about-h">About</h2>
       </div>
       <div class="about">
-        <p>I am a BCom Actuarial Science student at Stellenbosch University with a
-           strong focus on data, macroeconomics and automated systems. Alongside my
-           academic work, I am a self-taught developer building data-driven
-           e-commerce applications and managing international trade workflows.</p>
+        <div>
+          <p>I’m a BCom Actuarial Science and Mathematics student at Stellenbosch. I care about pricing, data, and how the numbers sit inside the rest of the business.</p>
+          <p>Alongside the degree I ship production systems. Search2 is one of them.</p>
+        </div>
         <div class="facts">
           <dl>
-            <div><dt>Studying</dt><dd>BCom Actuarial Science, Stellenbosch University</dd></div>
+            <div><dt>Studying</dt><dd>BCom Actuarial Science and Mathematics, Stellenbosch University</dd></div>
             <div><dt>Focus</dt><dd>Data, macroeconomics, automated systems</dd></div>
             <div><dt>Stack</dt><dd>Python · MongoDB · JavaScript · LLM &amp; embedding APIs</dd></div>
           </dl>
@@ -399,25 +405,31 @@
         <div class="card">
           <h3>Market-intelligence ledger</h3>
           <p>A self-built price and sales-rank history for amazon.co.za — a
-             marketplace no off-the-shelf tracker covers. Daily snapshots across the
-             full catalog surface movers, first-offer flips and dormant listings.</p>
+             marketplace no off-the-shelf tracker covers. Daily snapshots surface
+             movers, first-offer flips and dormant listings.</p>
           <div class="tags"><span class="tag">Python</span><span class="tag">MongoDB</span><span class="tag">SP-API</span></div>
         </div>
         <div class="card">
           <h3>E-commerce automation</h3>
-          <p>Production pipeline using multimodal embeddings to match international
-             product catalogs, streamlining the import process for regional
-             platforms.</p>
+          <p>A production pipeline that matches international catalogs with
+             multimodal embeddings and streamlines imports for regional platforms.</p>
           <div class="tags"><span class="tag">Python</span><span class="tag">Gemini</span><span class="tag">Docker</span></div>
         </div>
         <div class="card">
           <h3>Web development</h3>
-          <p>Front-end interfaces, including this site, the encrypted Search2
-             dashboards, and a multi-page mock university website for the Developer
-             Society hackathon.</p>
+          <p>This site, the encrypted Search2 dashboards, and a multi-page mock
+             university website for the Developer Society hackathon.</p>
           <div class="tags"><span class="tag">JavaScript</span><span class="tag">CSS</span><span class="tag">HTML</span></div>
         </div>
       </div>
+    </section>
+
+    <section id="pages" aria-labelledby="pages-h">
+      <div class="sechead">
+        <h2 id="pages-h">Pages</h2>
+        <p class="sub">Public pages on this domain. Add a file and they show up here.</p>
+      </div>
+      <div class="doors" id="pages-list"></div>
     </section>
 
     <section id="beyond" aria-labelledby="beyond-h">
@@ -454,6 +466,89 @@
       </span>
     </div>
   </footer>
+
+  <script>
+    (function () {
+      var FALLBACK = [
+        { title: "Home", path: "/", desc: "This site", nav: false },
+        {
+          title: "Search2 console",
+          path: "/Search2/app/",
+          desc: "Live operations desk — six desks, encrypted end to end.",
+          live: true,
+          locked: true,
+          nav: false
+        }
+      ];
+      var SKIP_NAV = { "/": true, "/Search2/app/": true };
+
+      function esc(s) {
+        return String(s == null ? "" : s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function doorHTML(page) {
+        var live = page.live
+          ? '<span class="chip"><span class="dot" aria-hidden="true"></span>Live</span>'
+          : "";
+        var lock = page.locked
+          ? '<span class="lock">' +
+            '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+            "passphrase-protected &middot; encrypted end to end</span>"
+          : "";
+        return (
+          '<a class="door" href="' + esc(page.path) + '">' +
+            '<div class="row">' +
+              '<span class="name">' + esc(page.title) + live + "</span>" +
+              '<span class="arrow" aria-hidden="true">&#8594;</span>' +
+            "</div>" +
+            '<span class="path">' + esc(page.path) + "</span>" +
+            '<p class="desc">' + esc(page.desc) + "</p>" +
+            lock +
+          "</a>"
+        );
+      }
+
+      function injectNav(pages) {
+        var nav = document.getElementById("nav-links");
+        if (!nav) return;
+        var live = nav.querySelector(".navlive");
+        var anchor = live ? live.parentElement : null;
+        pages.forEach(function (page) {
+          if (!page.nav || SKIP_NAV[page.path]) return;
+          var li = document.createElement("li");
+          li.className = "optional";
+          var a = document.createElement("a");
+          a.href = page.path;
+          a.textContent = page.title;
+          li.appendChild(a);
+          nav.insertBefore(li, anchor);
+        });
+      }
+
+      function render(pages) {
+        var host = document.getElementById("pages-list");
+        if (host) host.innerHTML = pages.map(doorHTML).join("");
+        injectNav(pages);
+      }
+
+      fetch("/pages.json", { cache: "no-store" })
+        .then(function (res) {
+          if (!res.ok) throw new Error("pages.json " + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          var pages = data && Array.isArray(data.pages) ? data.pages : null;
+          render(pages && pages.length ? pages : FALLBACK);
+        })
+        .catch(function () {
+          render(FALLBACK);
+        });
+    })();
+  </script>
 
 </body>
 </html>
