@@ -1,0 +1,54 @@
+{
+  "pages": [
+    {
+      "title": "Home",
+      "path": "/",
+      "desc": "This site",
+      "nav": false
+    },
+    {
+      "title": "Asset Register",
+      "path": "/grib/",
+      "desc": "Concept demo: photograph what you own, and see both what SARS lets you write off and what it now costs to replace.",
+      "nav": true
+    },
+    {
+      "title": "RainCheck",
+      "path": "/raincheck/",
+      "desc": "RainCheck ops dashboard",
+      "nav": true
+    },
+    {
+      "title": "RainCheck backtest",
+      "path": "/raincheck/backtest.html",
+      "desc": "",
+      "nav": false
+    },
+    {
+      "title": "RainCheck explorer",
+      "path": "/raincheck/explorer.html",
+      "desc": "",
+      "nav": false
+    },
+    {
+      "title": "RainCheck policies",
+      "path": "/raincheck/policies.html",
+      "desc": "",
+      "nav": false
+    },
+    {
+      "title": "RainCheck quotes",
+      "path": "/raincheck/quotes.html",
+      "desc": "",
+      "nav": false
+    },
+    {
+      "title": "Search2 console",
+      "path": "/Search2/app/",
+      "desc": "Live operations desk \u2014 six desks, encrypted end to end.",
+      "live": true,
+      "locked": true,
+      "nav": false
+    }
+  ]
+}
