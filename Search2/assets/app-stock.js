@@ -61,6 +61,9 @@ function stockModel() {
     /* Catalog shipped-package figures — the booking modal's box prefill. */
     r.packageWeight = h.package_weight_kg || null;
     r.packageDims = h.package_dims_cm || null;
+    /* Account-offer join (sku/status/leadtime units + the live leadtime
+       SLA + the standing Offer-mode state) — the Offer-mode control. */
+    r.offer = h.offer || r.offer || null;
   }
   for (const t of transit) {
     if (!t.asin) continue;
@@ -116,6 +119,93 @@ function stockModel() {
            courier: a.courier || null,
            fbaSyncedAt: stock.fba_synced_at || null,
            totals: (a.orders || {}).inventory || {} };
+}
+
+/* The live leadtime SLA in days — the offer row's own figure first, then
+   the account-level one off the seller poll. Takealot changes this (3 at
+   signup, 5 today), so it is NEVER hard-coded; null = not known yet. */
+function slaDays(m, r) {
+  return ((r || {}).offer || {}).leadtime_days
+    || ((m || {}).account || {}).leadtime_days || null;
+}
+
+function slaBadge(days) {
+  return days ? `${days}-day SLA` : "leadtime SLA";
+}
+
+/* Offer-mode modal: flips the product's Takealot offer between selling
+   home stock as leadtime units and in-stock-only (leadtime pinned at 0 —
+   buyable only while the DC itself holds units). The mode is STANDING:
+   the 6-hourly sales pass re-pins the offer's quantity as the shelf
+   changes. Posts one doc.stock.offer_modes entry to the bus
+   (funnel/commands.sink_stock → services/takealot.apply_offer_stock_mode). */
+function offerModeModal(r, m) {
+  withToken(() => {
+    const o = r.offer || {};
+    const days = slaDays(m, r);
+    const leadRadio = el("input", {
+      type: "radio", name: "offermode", value: "leadtime",
+      ...(o.mode === "leadtime" ? { checked: "" } : {}),
+    });
+    const dcRadio = el("input", {
+      type: "radio", name: "offermode", value: "dc_only",
+      ...(o.mode === "dc_only" ? { checked: "" } : {}),
+    });
+    const optionRow = (radio, title, body) => el("label", {
+      style: "display:flex;align-items:flex-start;gap:10px;margin-top:10px;" +
+        "cursor:pointer",
+    }, radio, el("span", {},
+      el("span", { style: "font-weight:600;display:block" }, title),
+      el("span", { class: "meta", style: "white-space:normal" }, body)));
+    const now = [];
+    if (o.leadtime_units != null) {
+      now.push(`offer carries ${o.leadtime_units} leadtime unit(s) today`);
+    }
+    now.push(`${r.available} sellable at home`);
+    if (r.tkl != null) now.push(`DC holds ${r.tkl}`);
+    const status = statusLine();
+    openModal(
+      el("h3", {}, `Takealot offer mode — ${r.title || r.asin}`),
+      el("p", { class: "meta" }, now.join(" · ")
+        + (o.mode_error ? ` · last attempt failed: ${o.mode_error}` : "")),
+      optionRow(leadRadio, `Leadtime — sell from home stock`,
+        "Sellable home units (minus open MFN holds) ride the offer and " +
+        "re-pin automatically as the shelf changes. Each sale must reach " +
+        (days ? `the DC within ${days} days` : "the DC within the SLA") +
+        " — Takealot sets the SLA and it can change; the current figure " +
+        "shows on the row."),
+      optionRow(dcRadio, "In stock only — home stock withheld",
+        "The offer's leadtime count is pinned at 0, so it sells only " +
+        "while the DC holds units. With the DC empty the offer shows " +
+        "unbuyable until you send stock in."),
+      el("button", {
+        class: "b pri wide", style: "margin-top:12px",
+        onclick: () => {
+          const mode = dcRadio.checked ? "dc_only"
+            : leadRadio.checked ? "leadtime" : null;
+          if (!mode) {
+            status.textContent = "Pick a mode first.";
+            return;
+          }
+          busAct(`offer mode ${r.asin}`, (doc) => {
+            const bucket = (doc.stock ??= {});
+            prunePush(bucket, "offer_modes", {
+              asin: r.asin, mode,
+              requested_at: new Date().toISOString(),
+            }, 2);
+          }, status,
+            "✅ Sent — applies on the next serve pass (~30s while 'serve' " +
+            "is up) and the offer updates on Takealot right after. The " +
+            "mode then re-pins itself each sales pass as home stock " +
+            "changes.");
+        },
+      }, "Apply"),
+      el("button", {
+        class: "b wide", style: "margin-top:8px",
+        onclick: () => modalEl().close(),
+      }, "Cancel"),
+      status);
+  });
 }
 
 /* Move-stock / Write-off / Adjust-count modal: posts one doc.stock.moves
@@ -539,7 +629,7 @@ function renderStockDesk(root) {
         ? el("div", { class: "flowrow" },
             el("span", { style: "font-weight:600" },
               `owes the DC ${dcOwedTotal} unit${dcOwedTotal === 1 ? "" : "s"}`),
-            el("span", { class: "st bad" }, "🚚 3-day SLA"))
+            el("span", { class: "st bad" }, `🚚 ${slaBadge(slaDays(m))}`))
         : null,
       m.account_low.length
         ? el("div", { class: "flowrow" },
@@ -2018,7 +2108,27 @@ function stockRow(r, m) {
   if (r.mfnOpen) sub.push(`${r.mfnOpen} committed to open MFN order${r.mfnOpen === 1 ? "" : "s"}`);
   if (r.returns) sub.push(`↩️ ${r.returns} in returns — inspect, then Move home or Write off`);
   if (r.dcOwed) {
-    sub.push(`🚚 owes the DC ${r.dcOwed} unit${r.dcOwed === 1 ? "" : "s"} — leadtime sale, 3-day SLA`);
+    sub.push(`🚚 owes the DC ${r.dcOwed} unit${r.dcOwed === 1 ? "" : "s"} — leadtime sale, ${slaBadge(slaDays(m, r))}`);
+  }
+  /* Offer-mode chip: what the Takealot offer promises from this shelf
+     right now, and the live leadtime SLA (never hard-coded — Takealot
+     changes it). "unmanaged" = leadtime stock set at listing time, no
+     standing mode chosen yet. */
+  if (r.offer) {
+    const o = r.offer;
+    const days = slaDays(m, r);
+    if (o.mode_error) {
+      sub.push(`🛒 offer mode ⚠ ${o.mode_error}`);
+    } else if (o.mode === "dc_only") {
+      sub.push("🛒 offer: in-stock only — home withheld");
+    } else if (o.mode === "leadtime") {
+      sub.push(`🛒 offer: leadtime${o.mode_units != null ? ` · ${o.mode_units}u` : ""}`
+        + (days ? ` · ships ≤${days}d` : "")
+        + (o.mode_applied_at ? "" : " · pending"));
+    } else if (o.leadtime_units) {
+      sub.push(`🛒 offer: leadtime · ${o.leadtime_units}u`
+        + (days ? ` · ships ≤${days}d` : "") + " · unmanaged");
+    }
   }
   if (r.group === "idle") sub.push(p && p.listing ? `listing ${INTENT_LABEL[p.listing.state] || p.listing.state}` : "no listing queued");
   if (r.group === "transit") sub.push(r.queued || r.live ? "listing under way — live by arrival if the feed clears" : "first stock");
@@ -2057,5 +2167,9 @@ function stockRow(r, m) {
       canMove ? el("button", {
         class: "b sm line", style: "margin-left:6px",
         onclick: () => moveStockModal(r),
-      }, "Move…") : null));
+      }, "Move…") : null,
+      r.offer ? el("button", {
+        class: "b sm line", style: "margin-left:6px",
+        onclick: () => offerModeModal(r, m),
+      }, "Offer…") : null));
 }

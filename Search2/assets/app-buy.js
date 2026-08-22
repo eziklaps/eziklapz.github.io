@@ -954,6 +954,19 @@ function buyDetail(p) {
         }, `Takealot ${m.price_min != null ? fmtR(m.price_min) : ""} ↗`)
       : el("span", { class: "hint", title: `checked ${fmtAgo(m.checked_at)}` },
           "not on Takealot — open field"));
+    // Margin at the MATCHED page's real price — the wishlist above counts
+    // demand at THAT price, while the headline margin anchors on Amazon.
+    if (m.found && p.takealot_margin_at_match != null) {
+      const losing = p.takealot_margin_at_match <= 0;
+      links.append(el("span", {
+        class: `pill ${losing ? "bad" : "ok"}`,
+        title: `landed margin selling on Takealot against the incumbent's ` +
+          `${fmtR(p.takealot_anchor_price)} (${p.takealot_anchor_source}) — ` +
+          `the headline margin anchors on the Amazon price` +
+          (losing ? "; the wishlist demand is the incumbent's, not ours" : ""),
+      }, `at match ${fmtR(p.takealot_margin_at_match)} · ` +
+         `${p.takealot_margin_at_match_percent ?? "—"}%`));
+    }
   }
   card.append(links);
 

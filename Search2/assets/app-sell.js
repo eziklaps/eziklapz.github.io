@@ -255,7 +255,22 @@ function candidatesPanelEl(channel, data, status) {
           : `PLID ${r.plid} — the barcode resolves from the product page at queue time`,
       }, r.source === "discovery" ? "discovery" : "Amazon match")),
       el("td", {}, r.score != null ? String(Math.round(r.score)) : "—"),
-      el("td", {}, marginCell(r)),
+      // Matched rows: the action here is a Takealot offer, so lead with the
+      // margin at the incumbent's real price on the matched PLID — the
+      // Amazon-anchored pipeline margin stays a hover away.
+      el("td", {}, r.source === "match" && r.margin_at_match != null
+        ? el("span", {
+            class: "num",
+            title: `at the incumbent's ${fmtR(r.margin_at_match_price ?? r.takealot_price)} ` +
+              `on the matched PLID · Amazon-anchored ${fmtR(r.margin_total)} ` +
+              `(${r.margin_percent ?? "—"}%)`,
+          },
+            el("b", {
+              style: `color:var(${r.margin_at_match > 0 ? "--ok-text" : "--bad"})`,
+            }, fmtR(r.margin_at_match)),
+            el("span", { style: "color:var(--muted)" },
+              ` at match · ${r.margin_at_match_percent ?? "—"}%`))
+        : marginCell(r)),
       el("td", {}, r.amazon_price != null ? fmtR(r.amazon_price) : "—"),
       el("td", {}, fmtR(r.takealot_price)),
       el("td", {}, onHandCell(r.id)),
