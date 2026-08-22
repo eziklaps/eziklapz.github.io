@@ -502,6 +502,7 @@ function accountPanelEl(channel, account) {
     p.append(el("div", { class: "warnbar bad", style: "margin-bottom:8px;padding:8px 12px;font-size:12px" },
       `▲ LOW STOCK: ${low.title || low.sku} — ${low.stock} left`));
   }
+  p.append(buyableSectionEl(channel, account));
   if ((account.rows || []).length) {
     const tk = channel === "takealot";
     const table = el("table", { class: "grid" },
@@ -531,6 +532,49 @@ function accountPanelEl(channel, account) {
   }
   p.append(el("div", { class: "hint", style: "margin-top:8px" }, tkHint(channel)));
   return p;
+}
+
+/* Buyable now — the offers a customer could actually put in a cart at
+   this moment. The fleet is mostly stockless probes, so these drown in
+   the wishlist top-30; the count + dedicated list keep the storefront's
+   real face visible. Takealot rows split DC stock from leadtime units
+   (the Stock desk's Offer-mode control feeds the latter). */
+function buyableSectionEl(channel, account) {
+  const tk = channel === "takealot";
+  const rows = account.buyable_rows || [];
+  const count = (account.counts || {}).buyable || rows.length;
+  const wrap = el("div", { style: "margin:0 0 10px" },
+    el("div", { style: "font-weight:650;margin:2px 0 6px" },
+      `🛒 Buyable now — ${count}`));
+  if (!rows.length) {
+    wrap.append(el("div", { class: "hint" }, tk
+      ? "nothing a customer can buy right now — an offer goes buyable " +
+        "when the DC holds its stock or the product carries leadtime " +
+        "units (Stock desk → Offer…)"
+      : "nothing a customer can buy right now — listings go buyable " +
+        "once they carry fulfillable stock"));
+    return wrap;
+  }
+  const table = el("table", { class: "grid" },
+    el("tr", {}, el("th", {}, "Offer"), el("th", {}, "Price"),
+      tk ? el("th", {}, "DC stock") : el("th", {}, "Stock"),
+      tk ? el("th", {}, "Leadtime units") : el("th", {}, "Fulfilment"),
+      tk ? el("th", {}, "Wishlist 30d") : null,
+      tk ? el("th", {}, "Views 30d") : null));
+  for (const o of rows) {
+    table.append(el("tr", {},
+      el("td", { class: "t" }, o.url
+        ? el("a", { href: o.url, target: "_blank", rel: "noopener", class: "rowtitle" }, o.title || o.sku)
+        : el("span", { class: "rowtitle" }, o.title || o.sku)),
+      el("td", {}, fmtR(o.selling_price)),
+      el("td", {}, o.stock ?? "—"),
+      tk ? el("td", {}, o.leadtime_units ? fmtNum(o.leadtime_units) : "—")
+         : el("td", { class: "t" }, o.fulfillment || "—"),
+      tk ? el("td", {}, fmtNum(o.wishlist_30d)) : null,
+      tk ? el("td", {}, fmtNum(o.views_30d)) : null));
+  }
+  wrap.append(el("div", { class: "scroll-x" }, table));
+  return wrap;
 }
 
 function tkHint(channel) {
