@@ -13,6 +13,12 @@
       "nav": true
     },
     {
+      "title": "Cashline",
+      "path": "/cashline/",
+      "desc": "Revenue-first analytics. See which channel paid.",
+      "nav": true
+    },
+    {
       "title": "Asset Register",
       "path": "/grib/",
       "desc": "Concept demo: photograph what you own, and see both what SARS lets you write off and what it now costs to replace.",
