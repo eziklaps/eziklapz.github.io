@@ -40,7 +40,7 @@
     label.k.off { opacity: .45; }
     label.k.off input { pointer-events: none; }
     .count { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 14px; margin: 0 0 12px; }
-    .list { display: flex; flex-direction: column; gap: 10px; padding: 0 0 48px; }
+    .list { display: flex; flex-direction: column; gap: 10px; padding: 0 0 24px; }
     article.c { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 16px 18px; }
     article.c h2 { font-family: var(--serif); font-size: 1.15rem; font-weight: 600; margin: 0 0 4px; }
     article.c p { margin: 0 0 8px; color: var(--ink-2); font-size: 14.5px; }
@@ -48,6 +48,8 @@
     .bit { font-size: 11.5px; font-weight: 500; color: var(--ink-2); border: 1px solid var(--hairline); border-radius: 999px; padding: 2px 9px; }
     .bit.fun { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--hairline)); }
     .empty { color: var(--muted); padding: 32px 0; }
+    .more { display: inline-block; margin: 0 0 48px; font: 500 14px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+    .more:hover { border-color: var(--accent); color: var(--accent); }
     footer.site { border-top: 1px solid var(--hairline); padding: 20px 0 36px; color: var(--muted); font-size: 13px; }
   </style>
 </head>
@@ -96,19 +98,35 @@
     </form>
     <p class="count" id="count"></p>
     <div class="list" id="list"></div>
+    <button class="more" id="more" hidden type="button">Show more</button>
   </div>
   <footer class="site"><div class="wrap" id="foot"></div></footer>
   <script>
     const $ = id => document.getElementById(id);
+    const PAGE = 80;
     let DATA = { companies: [] };
+    let shown = PAGE;
+    const expand = r => ({
+      name: r.n,
+      tagline: r.t || '',
+      url: r.u || '',
+      product_hunt_url: r.s ? ('https://www.producthunt.com/products/' + r.s) : '',
+      age_months: r.a,
+      ph_votes: r.v,
+      claimed_users: r.c,
+      claimed_users_quote: r.q,
+      public_pricing: r.$ === true,
+      funnel_tag: r.f || 'unknown',
+      confidence: r.k
+    });
     const bit = (t, cls) => t ? `<span class="bit ${cls||''}">${t}</span>` : '';
-    function render() {
+    function filtered() {
       const age = +$('age').value || 12;
       const claimed = +$('claimed').value || 0;
       const pricing = $('pricing').value;
       const funnel = $('funnel').value;
       const conf = $('conf').value;
-      const rows = DATA.companies.filter(c => {
+      return DATA.companies.filter(c => {
         const m = c.age_months == null ? 0 : +c.age_months;
         if (m > age) return false;
         if (claimed && !(c.claimed_users >= claimed)) return false;
@@ -118,9 +136,13 @@
         if (conf === 'high' && c.confidence !== 'high') return false;
         if (conf === 'medium' && !['high','medium','mid'].includes(c.confidence)) return false;
         return true;
-      });
-      $('count').textContent = rows.length + ' of ' + DATA.companies.length;
-      $('list').innerHTML = rows.length ? rows.map(c => {
+      }).sort((a,b) => (b.ph_votes||0) - (a.ph_votes||0));
+    }
+    function render() {
+      const rows = filtered();
+      const slice = rows.slice(0, shown);
+      $('count').textContent = rows.length + ' of ' + DATA.companies.length + ' · sorted by votes';
+      $('list').innerHTML = slice.length ? slice.map(c => {
         const title = c.url ? `<a href="${c.url}" target="_blank" rel="noopener">${c.name}</a>` : c.name;
         const ph = c.product_hunt_url ? ` · <a href="${c.product_hunt_url}" target="_blank" rel="noopener">Product Hunt</a>` : '';
         return `<article class="c"><h2>${title}</h2><p>${c.tagline || ''}${ph}</p><div class="bits">${
@@ -132,17 +154,28 @@
         }${bit(c.confidence ? 'data ' + c.confidence : '')
         }</div></article>`;
       }).join('') : '<p class="empty">Nothing matches those knobs.</p>';
+      const more = $('more');
+      more.hidden = slice.length >= rows.length;
+      more.textContent = 'Show more (' + (rows.length - slice.length) + ' left)';
     }
-    const PARTS = ['data-0.json','data-1.json','data-2.json','data-3.json'];
-    Promise.all(PARTS.map(p => fetch(p).then(r => { if (!r.ok) throw new Error(p); return r.json(); })))
-      .then(parts => {
-        const companies = parts.flatMap(p => p.companies || []);
-        const head = parts[0] || {};
-        DATA = { companies, count: companies.length, source: head.source || '', generated_at: head.generated_at || '' };
-        $('src').textContent = DATA.count + ' companies. ' + DATA.source;
-        $('foot').textContent = 'Snapshot ' + DATA.generated_at + '. Blank knobs mean we did not observe a number.';
-        ['age','claimed','pricing','funnel','conf'].forEach(id => $(id).addEventListener('input', render));
-        render();
+    fetch('manifest.json').then(r => { if (!r.ok) throw new Error('manifest'); return r.json(); })
+      .then(m => {
+        const paths = Array.from({length: m.parts}, (_, i) => 'p-' + i + '.json');
+        return Promise.all(paths.map(p => fetch(p).then(r => { if (!r.ok) throw new Error(p); return r.json(); })))
+          .then(parts => {
+            DATA = {
+              companies: parts.flat().map(expand),
+              count: m.count,
+              source: m.source || '',
+              generated_at: m.generated_at || ''
+            };
+            $('src').textContent = DATA.count + ' companies. ' + DATA.source;
+            $('foot').textContent = 'Snapshot ' + DATA.generated_at + '. Blank knobs mean we did not observe a number.';
+            shown = PAGE;
+            ['age','claimed','pricing','funnel','conf'].forEach(id => $(id).addEventListener('input', () => { shown = PAGE; render(); }));
+            $('more').addEventListener('click', () => { shown += PAGE; render(); });
+            render();
+          });
       }).catch(() => { $('list').innerHTML = '<p class="empty">Could not load company data</p>'; });
   </script>
 </body>
