@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saases — Andrew Walsh</title>
+  <meta name="description" content="Young software with observable traction. Twist the knobs, study the funnel.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%232a78d6' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%230ca30c'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e;
+      --muted: #898781; --hairline: #e1e0d9; --ring: rgba(11,11,11,.10);
+      --accent: #2a78d6; --good: #0ca30c; --serif: 'Lora', Georgia, serif;
+      --sans: 'Inter', system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #0d0d0d; --surface: #1a1a19; --ink: #fff; --ink-2: #c3c2b7;
+        --muted: #898781; --hairline: #2c2c2a; --ring: rgba(255,255,255,.10); --accent: #3987e5;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--page); color: var(--ink); font: 400 16px/1.55 var(--sans); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; text-underline-offset: 3px; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+    nav.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--page) 82%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--hairline); }
+    nav.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .wordmark { font-family: var(--serif); font-weight: 600; color: var(--ink); font-size: 17px; }
+    .wordmark:hover { text-decoration: none; color: var(--accent); }
+    h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(1.8rem, 4vw, 2.4rem); letter-spacing: -.015em; margin: 28px 0 8px; }
+    .lead { color: var(--ink-2); margin: 0 0 22px; max-width: 40em; }
+    .meta { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+    .knobs { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 0 0 22px; padding: 14px; border: 1px solid var(--ring); border-radius: 14px; background: var(--surface); }
+    label.k { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    label.k input, label.k select { font: 500 14px var(--sans); color: var(--ink); background: var(--page); border: 1px solid var(--hairline); border-radius: 8px; padding: 7px 9px; }
+    label.k.off { opacity: .45; }
+    label.k.off input { pointer-events: none; }
+    .count { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 14px; margin: 0 0 12px; }
+    .list { display: flex; flex-direction: column; gap: 10px; padding: 0 0 48px; }
+    article.c { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 16px 18px; }
+    article.c h2 { font-family: var(--serif); font-size: 1.15rem; font-weight: 600; margin: 0 0 4px; }
+    article.c p { margin: 0 0 8px; color: var(--ink-2); font-size: 14.5px; }
+    .bits { display: flex; flex-wrap: wrap; gap: 6px; }
+    .bit { font-size: 11.5px; font-weight: 500; color: var(--ink-2); border: 1px solid var(--hairline); border-radius: 999px; padding: 2px 9px; }
+    .bit.fun { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--hairline)); }
+    .empty { color: var(--muted); padding: 32px 0; }
+    footer.site { border-top: 1px solid var(--hairline); padding: 20px 0 36px; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <nav class="top"><div class="wrap">
+    <a class="wordmark" href="/">Andrew Walsh</a>
+    <a href="/Search2/app/">Live</a>
+  </div></nav>
+  <div class="wrap">
+    <h1>Saases</h1>
+    <p class="lead">Young software with observable traction. Twist the knobs. Copy a funnel we can actually run — not a fake customer count.</p>
+    <p class="meta" id="src"></p>
+    <form class="knobs" id="knobs">
+      <label class="k">Age under (months)
+        <input type="number" id="age" min="1" max="24" value="12">
+      </label>
+      <label class="k">Claimed users ≥
+        <input type="number" id="claimed" min="0" step="1000" value="0" title="0 = any. 10000 flags the ones that publish a number.">
+      </label>
+      <label class="k">Public pricing
+        <select id="pricing"><option value="any">Any</option><option value="yes">Yes</option><option value="no">No</option></select>
+      </label>
+      <label class="k">Funnel
+        <select id="funnel">
+          <option value="any">Any</option>
+          <option value="seo">SEO</option>
+          <option value="marketplace">Marketplace</option>
+          <option value="community">Community</option>
+          <option value="outbound">Outbound</option>
+          <option value="tiktok">TikTok</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </label>
+      <label class="k">Data confidence
+        <select id="conf"><option value="any">Any</option><option value="high">High</option><option value="medium">Mid+</option></select>
+      </label>
+      <label class="k off">Social ≥ 1,000
+        <input type="text" value="no data yet" readonly>
+      </label>
+      <label class="k off">Traffic ≥ 10k
+        <input type="text" value="no data yet" readonly>
+      </label>
+      <label class="k off">Reviews ≥ 50
+        <input type="text" value="no data yet" readonly>
+      </label>
+    </form>
+    <p class="count" id="count"></p>
+    <div class="list" id="list"></div>
+  </div>
+  <footer class="site"><div class="wrap" id="foot"></div></footer>
+  <script>
+    const $ = id => document.getElementById(id);
+    let DATA = { companies: [] };
+    const bit = (t, cls) => t ? `<span class="bit ${cls||''}">${t}</span>` : '';
+    function render() {
+      const age = +$('age').value || 12;
+      const claimed = +$('claimed').value || 0;
+      const pricing = $('pricing').value;
+      const funnel = $('funnel').value;
+      const conf = $('conf').value;
+      const rows = DATA.companies.filter(c => {
+        const m = c.age_months == null ? 0 : +c.age_months;
+        if (m > age) return false;
+        if (claimed && !(c.claimed_users >= claimed)) return false;
+        if (pricing === 'yes' && c.public_pricing !== true) return false;
+        if (pricing === 'no' && c.public_pricing !== false) return false;
+        if (funnel !== 'any' && (c.funnel_tag || 'unknown') !== funnel) return false;
+        if (conf === 'high' && c.confidence !== 'high') return false;
+        if (conf === 'medium' && !['high','medium','mid'].includes(c.confidence)) return false;
+        return true;
+      });
+      $('count').textContent = rows.length + ' of ' + DATA.companies.length;
+      $('list').innerHTML = rows.length ? rows.map(c => {
+        const title = c.url ? `<a href="${c.url}" target="_blank" rel="noopener">${c.name}</a>` : c.name;
+        const ph = c.product_hunt_url ? ` · <a href="${c.product_hunt_url}" target="_blank" rel="noopener">Product Hunt</a>` : '';
+        return `<article class="c"><h2>${title}</h2><p>${c.tagline || ''}${ph}</p><div class="bits">${
+          bit(c.age_months != null ? c.age_months + ' mo' : '')
+        }${bit(c.ph_votes != null ? c.ph_votes + ' votes' : '')
+        }${bit(c.claimed_users ? (c.claimed_users_quote || (c.claimed_users + ' claimed')) : '')
+        }${bit(c.public_pricing === true ? 'public pricing' : '')
+        }${bit(c.funnel_tag && c.funnel_tag !== 'unknown' ? c.funnel_tag : '', 'fun')
+        }${bit(c.confidence ? 'data ' + c.confidence : '')
+        }</div></article>`;
+      }).join('') : '<p class="empty">Nothing matches those knobs.</p>';
+    }
+    fetch('data.json').then(r => r.json()).then(d => {
+      DATA = d;
+      $('src').textContent = (d.count || d.companies.length) + ' companies. ' + (d.source || '');
+      $('foot').textContent = 'Snapshot ' + (d.generated_at || '') + '. Blank knobs mean we did not observe a number.';
+      ['age','claimed','pricing','funnel','conf'].forEach(id => $(id).addEventListener('input', render));
+      render();
+    }).catch(() => { $('list').innerHTML = '<p class="empty">Could not load data.json</p>'; });
+  </script>
+</body>
+</html>
