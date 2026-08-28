@@ -133,13 +133,17 @@
         }</div></article>`;
       }).join('') : '<p class="empty">Nothing matches those knobs.</p>';
     }
-    fetch('data.json').then(r => r.json()).then(d => {
-      DATA = d;
-      $('src').textContent = (d.count || d.companies.length) + ' companies. ' + (d.source || '');
-      $('foot').textContent = 'Snapshot ' + (d.generated_at || '') + '. Blank knobs mean we did not observe a number.';
-      ['age','claimed','pricing','funnel','conf'].forEach(id => $(id).addEventListener('input', render));
-      render();
-    }).catch(() => { $('list').innerHTML = '<p class="empty">Could not load data.json</p>'; });
+    const PARTS = ['data-0.json','data-1.json','data-2.json','data-3.json'];
+    Promise.all(PARTS.map(p => fetch(p).then(r => { if (!r.ok) throw new Error(p); return r.json(); })))
+      .then(parts => {
+        const companies = parts.flatMap(p => p.companies || []);
+        const head = parts[0] || {};
+        DATA = { companies, count: companies.length, source: head.source || '', generated_at: head.generated_at || '' };
+        $('src').textContent = DATA.count + ' companies. ' + DATA.source;
+        $('foot').textContent = 'Snapshot ' + DATA.generated_at + '. Blank knobs mean we did not observe a number.';
+        ['age','claimed','pricing','funnel','conf'].forEach(id => $(id).addEventListener('input', render));
+        render();
+      }).catch(() => { $('list').innerHTML = '<p class="empty">Could not load company data</p>'; });
   </script>
 </body>
 </html>
