@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cashline app</title>
+  <meta name="description" content="Cashline dashboard — visitors, revenue, RPV, top referrers and pages.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%232a78d6' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%230ca30c'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+:root{
+  --page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
+  --muted:#898781;--hairline:#e1e0d9;--ring:rgba(11,11,11,.10);
+  --accent:#2a78d6;--accent-ink:#fff;--good:#0ca30c;--good-text:#006300;
+  --serif:'Lora',Georgia,serif;--sans:'Inter',system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --page:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink-2:#c3c2b7;
+    --muted:#898781;--hairline:#2c2c2a;--ring:rgba(255,255,255,.10);
+    --accent:#3987e5;--good-text:#0ca30c;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:400 16px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.wrap{max-width:920px;margin:0 auto;padding:0 20px}
+nav.top{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--page) 82%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline)}
+nav.top .wrap{display:flex;align-items:center;justify-content:space-between;height:56px}
+.wordmark{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:17px}
+.wordmark:hover{text-decoration:none;color:var(--accent)}
+.navlive{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2);font:500 14px var(--sans)}
+.navlive:hover{color:var(--ink);text-decoration:none}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block;flex:none}
+h1,h2{font-family:var(--serif);font-weight:500;letter-spacing:-.015em}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:10px;font:500 15px var(--sans);border:1px solid var(--ring);background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.btn:hover{text-decoration:none}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--hairline)}
+.card{background:var(--surface);border:1px solid var(--ring);border-radius:14px;padding:18px 20px}
+footer.site{border-top:1px solid var(--hairline);padding:20px 0 36px;color:var(--muted);font-size:13px;margin-top:56px}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+input{font:500 15px var(--sans);color:var(--ink);background:var(--page);border:1px solid var(--hairline);border-radius:8px;padding:9px 11px;width:100%}
+.gate{max-width:420px;margin:64px auto 80px}
+.gate h1{font-size:2rem;margin:0 0 8px}
+.gate p{color:var(--ink-2);margin:0 0 20px}
+.gate .btn{margin-top:14px;width:100%}
+.banner{background:color-mix(in srgb,var(--accent) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--hairline));border-radius:12px;padding:12px 14px;margin:22px 0 16px;color:var(--ink-2);font-size:14px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:28px 0 12px}
+.row h1{margin:0;font-size:1.8rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:8px 0 18px}
+.stat .v{font-size:28px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.stat .l{color:var(--muted);font-size:12.5px}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:0 0 18px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;padding:0 0 8px}
+td{padding:7px 8px 7px 0;border-top:1px solid var(--hairline);color:var(--ink-2)}
+td:last-child,th:last-child{text-align:right}
+pre{margin:10px 0 0;padding:12px;background:var(--page);border:1px solid var(--hairline);border-radius:10px;overflow:auto;font-size:12.5px;line-height:1.45}
+.muted{color:var(--muted);font-size:13px}
+.tools{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  </style>
+</head>
+<body>
+  <nav class="top" aria-label="Site"><div class="wrap">
+    <a class="wordmark" href="/">Andrew Walsh</a>
+    <a class="navlive" href="/Search2/app/"><span class="dot" aria-hidden="true"></span>Live</a>
+  </div></nav>
+  <div class="wrap">
+    <form class="gate" id="gate" hidden>
+      <h1>Open Cashline</h1>
+      <p>Email only. Stored in this browser — no backend, no card for the trial.</p>
+      <label class="f">Email <input type="email" id="email" required autocomplete="email" placeholder="you@example.com"></label>
+      <button class="btn" type="submit">Continue</button>
+    </form>
+    <div id="dash" hidden>
+      <div class="row">
+        <h1>Cashline</h1>
+        <span class="muted" id="who"></span>
+      </div>
+      <div class="banner" id="exbanner" hidden>Example data — not your traffic. Open the test page and buy once; this board then uses your local events.</div>
+      <article class="card">
+        <strong>Install</strong>
+        <p class="muted" style="margin:6px 0 0">Paste on every page. Fire a purchase on checkout success.</p>
+        <pre id="snip"></pre>
+        <div class="tools">
+          <a class="btn" id="test" href="/cashline/test.html">Open test page</a>
+          <button class="btn ghost" type="button" id="out">Sign out</button>
+        </div>
+      </article>
+      <div class="stats">
+        <article class="card stat"><div class="v" id="vis">0</div><div class="l">Visitors</div></article>
+        <article class="card stat"><div class="v" id="rev">$0</div><div class="l">Revenue</div></article>
+        <article class="card stat"><div class="v" id="rpv">$0</div><div class="l">Revenue per visitor</div></article>
+      </div>
+      <div class="split">
+        <article class="card">
+          <h2 style="font-size:1.1rem;margin:0 0 10px">Top referrers</h2>
+          <table><thead><tr><th>Source</th><th>Rev</th></tr></thead><tbody id="refs"></tbody></table>
+        </article>
+        <article class="card">
+          <h2 style="font-size:1.1rem;margin:0 0 10px">Top pages</h2>
+          <table><thead><tr><th>Page</th><th>Rev</th></tr></thead><tbody id="pages"></tbody></table>
+        </article>
+      </div>
+    </div>
+  </div>
+  <footer class="site"><div class="wrap">Events stay in localStorage key <code>cashline_events</code>. Optional POST /cashline/collect is ignored on this static host.</div></footer>
+  <script>
+  (function(){
+    var EMAIL="cashline_email", SID="cashline_sid", KEY="cashline_events";
+    var $ = function(id){ return document.getElementById(id); };
+    function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+    function money(n){ return "$" + (Math.round((+n||0)*100)/100).toFixed(2); }
+    function sid(){
+      var s = localStorage.getItem(SID);
+      if (!s) { s = "c_" + Math.random().toString(36).slice(2,10); localStorage.setItem(SID, s); }
+      return s;
+    }
+    function seed(){
+      var now = Date.now(), d = 86400000;
+      var rows = [
+        ["pageview", 5*d, "/example/home", "", "ex1"],
+        ["pageview", 5*d-3e5, "/example/pricing", "https://news.example/", "ex1"],
+        ["purchase", 5*d-6e5, "/example/pricing", "https://news.example/", "ex1", 19],
+        ["pageview", 4*d, "/example/blog", "https://search.example/q", "ex2"],
+        ["pageview", 3*d, "/example/home", "https://social.example/", "ex3"],
+        ["pageview", 3*d-2e5, "/example/pricing", "https://social.example/", "ex3"],
+        ["purchase", 3*d-4e5, "/example/pricing", "https://social.example/", "ex3", 9],
+        ["pageview", 2*d, "/example/docs", "", "ex4"],
+        ["pageview", 1*d, "/example/pricing", "https://newsletter.example/", "ex5"],
+        ["purchase", 1*d-1e5, "/example/pricing", "https://newsletter.example/", "ex5", 9],
+        ["pageview", 8e6, "/example/home", "https://news.example/", "ex6"],
+        ["purchase", 7e6, "/example/home", "https://news.example/", "ex6", 49]
+      ];
+      return rows.map(function(r){
+        return { t:r[0], ts:now-r[1], path:r[2], ref:r[3], vid:r[4], amount:r[5], currency:r[5]!=null?"USD":undefined, sid:"example", example:true };
+      });
+    }
+    function loadReal(){
+      try {
+        return (JSON.parse(localStorage.getItem(KEY)||"[]")||[]).filter(function(e){ return e && e.example !== true; });
+      } catch (e) { return []; }
+    }
+    function host(ref){
+      if (!ref) return "(direct)";
+      try { return new URL(ref).hostname; } catch (e) { return ref; }
+    }
+    function rank(evs, keyfn){
+      var map = {};
+      evs.filter(function(e){ return e.t==="purchase"; }).forEach(function(e){
+        var k = keyfn(e);
+        map[k] = (map[k]||0) + (+e.amount||0);
+      });
+      return Object.keys(map).map(function(k){ return [k, map[k]]; }).sort(function(a,b){ return b[1]-a[1]; }).slice(0,8);
+    }
+    function rows(list){
+      return list.length ? list.map(function(r){ return "<tr><td>"+esc(r[0])+"</td><td>"+money(r[1])+"</td></tr>"; }).join("") : "<tr><td colspan='2'>No purchases yet</td></tr>";
+    }
+    function render(){
+      var real = loadReal();
+      var usingEx = real.length === 0;
+      var evs = usingEx ? seed() : real;
+      $("exbanner").hidden = !usingEx;
+      var vids = {};
+      var rev = 0;
+      evs.forEach(function(e){
+        if (e.vid) vids[e.vid] = 1;
+        if (e.t==="purchase") rev += (+e.amount||0);
+      });
+      var n = Object.keys(vids).length || evs.filter(function(e){ return e.t==="pageview"; }).length;
+      $("vis").textContent = n;
+      $("rev").textContent = money(rev);
+      $("rpv").textContent = money(n ? rev/n : 0);
+      $("refs").innerHTML = rows(rank(evs, function(e){ return host(e.ref); }));
+      $("pages").innerHTML = rows(rank(evs, function(e){ return e.path || "/"; }));
+    }
+    function openDash(){
+      var email = localStorage.getItem(EMAIL);
+      var s = sid();
+      $("gate").hidden = true;
+      $("dash").hidden = false;
+      $("who").textContent = email;
+      var src = location.origin + "/cashline/snippet.js";
+      $("snip").textContent = '<script src="'+src+'" data-sid="'+s+'"><'+'/script>\n<script>\n  cashline("purchase", { amount: 9, currency: "USD" });\n<'+'/script>';
+      $("test").href = "/cashline/test.html?sid=" + encodeURIComponent(s);
+      render();
+    }
+    if (localStorage.getItem(EMAIL)) openDash(); else $("gate").hidden = false;
+    $("gate").addEventListener("submit", function(ev){
+      ev.preventDefault();
+      var v = $("email").value.trim();
+      if (!v || v.indexOf("@")<1) return;
+      localStorage.setItem(EMAIL, v);
+      openDash();
+    });
+    $("out").addEventListener("click", function(){
+      localStorage.removeItem(EMAIL);
+      $("dash").hidden = true;
+      $("gate").hidden = false;
+    });
+    window.addEventListener("storage", function(e){ if (e.key===KEY) render(); });
+    setInterval(function(){ if (!$("dash").hidden) render(); }, 2000);
+  })();
+  </script>
+</body>
+</html>
