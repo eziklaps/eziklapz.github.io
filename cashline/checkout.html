@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cashline checkout</title>
+  <meta name="description" content="Cashline $9/mo checkout. Payment is not live until Stripe keys are connected.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%232a78d6' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%230ca30c'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+:root{
+  --page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;
+  --muted:#898781;--hairline:#e1e0d9;--ring:rgba(11,11,11,.10);
+  --accent:#2a78d6;--accent-ink:#fff;--good:#0ca30c;--good-text:#006300;
+  --serif:'Lora',Georgia,serif;--sans:'Inter',system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --page:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink-2:#c3c2b7;
+    --muted:#898781;--hairline:#2c2c2a;--ring:rgba(255,255,255,.10);
+    --accent:#3987e5;--good-text:#0ca30c;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:400 16px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.wrap{max-width:920px;margin:0 auto;padding:0 20px}
+nav.top{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--page) 82%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline)}
+nav.top .wrap{display:flex;align-items:center;justify-content:space-between;height:56px}
+.wordmark{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:17px}
+.wordmark:hover{text-decoration:none;color:var(--accent)}
+.navlive{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2);font:500 14px var(--sans)}
+.navlive:hover{color:var(--ink);text-decoration:none}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block;flex:none}
+h1,h2{font-family:var(--serif);font-weight:500;letter-spacing:-.015em}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:10px;font:500 15px var(--sans);border:1px solid var(--ring);background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.btn:hover{text-decoration:none}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--hairline)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.card{background:var(--surface);border:1px solid var(--ring);border-radius:14px;padding:18px 20px}
+footer.site{border-top:1px solid var(--hairline);padding:20px 0 36px;color:var(--muted);font-size:13px;margin-top:56px}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+input,select{font:500 15px var(--sans);color:var(--ink);background:var(--page);border:1px solid var(--hairline);border-radius:8px;padding:9px 11px;width:100%}
+
+.box{max-width:480px;margin:48px auto 80px}
+.box h1{font-size:1.9rem;margin:0 0 8px}
+.warn{background:color-mix(in srgb,var(--accent) 8%,var(--surface));border:1px solid var(--hairline);border-radius:12px;padding:12px 14px;color:var(--ink-2);font-size:14.5px;margin:0 0 18px}
+.box .card + .card{margin-top:12px}
+.line{display:flex;justify-content:space-between;margin:6px 0;color:var(--ink-2)}
+.line strong{color:var(--ink)}
+.box .btn{width:100%;margin-top:14px}
+
+  </style>
+</head>
+<body>
+  <nav class="top" aria-label="Site"><div class="wrap">
+    <a class="wordmark" href="/">Andrew Walsh</a>
+    <a class="navlive" href="/Search2/app/"><span class="dot" aria-hidden="true"></span>Live</a>
+  </div></nav>
+  <div class="wrap">
+    <div class="box">
+      <h1>Checkout</h1>
+      <p class="warn" id="warn">Payment is not live until Stripe keys are connected. This form will not charge a card and will not pretend a payment succeeded.</p>
+      <article class="card">
+        <div class="line"><span>Plan</span><strong id="plan">Starter</strong></div>
+        <div class="line"><span>Price</span><strong id="price">$9/mo</strong></div>
+        <div class="line"><span>Trial</span><span>14 days, no card — use the app</span></div>
+      </article>
+      <article class="card" style="margin-top:12px">
+        <label class="f">Email <input type="email" autocomplete="email" placeholder="you@example.com"></label>
+        <label class="f" style="margin-top:12px">Card <input type="text" placeholder="Stripe not connected" disabled></label>
+        <button class="btn" type="button" disabled>Stripe not connected</button>
+        <p style="margin:12px 0 0;font-size:13.5px"><a href="/cashline/app/">Start the 14-day trial instead</a> · <a href="/cashline/">Back to Cashline</a></p>
+      </article>
+    </div>
+  </div>
+  <footer class="site"><div class="wrap">No charge is recorded. Connect Stripe keys before this button can run.</div></footer>
+  <script>
+  (function(){
+    var p = new URLSearchParams(location.search).get("plan");
+    if (p === "growth") {
+      document.getElementById("plan").textContent = "Growth";
+      document.getElementById("price").textContent = "$19/mo";
+    }
+  })();
+  </script>
+</body>
+</html>
