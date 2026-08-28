@@ -128,7 +128,8 @@ function repricerPanel(cfg) {
     const table = el("table", { class: "grid" },
       el("tr", {}, el("th", {}, "Offer"), el("th", {}, "Channel"),
         el("th", {}, "Current"), el("th", {}, "Floor"),
-        el("th", {}, "Best rival"), el("th", {}, "Verdict"),
+        el("th", {}, "Best rival"), el("th", {}, "Box"),
+        el("th", {}, "Verdict"),
         el("th", {}, "Target"), el("th", {}, "When")));
     for (const r of rows) {
       table.append(el("tr", {},
@@ -137,6 +138,10 @@ function repricerPanel(cfg) {
         el("td", {}, fmtR(r.current)),
         el("td", { title: "buy-ready line: net margin after inbound allocation never drops under the floor" }, fmtR(r.floor)),
         el("td", {}, r.competitor != null ? fmtR(r.competitor) : "—"),
+        el("td", { class: "t", title: "who the product page hands the buybox to (its is_selected offer) as of the last competitor check" },
+          r.buybox === true ? el("span", { class: "st ok" }, "ours")
+            : r.buybox === false ? el("span", { class: "st bad" }, "rival")
+            : "—"),
         el("td", { class: "t", title: r.reason || "" }, el("span", {
           class: `st ${REPRICE_ACTION_TONE[r.action] || "mute"}`,
         }, r.action + (r.apply_result && r.apply_result !== "accepted" ? " ⚠" : ""))),
@@ -154,7 +159,10 @@ function repricerPanel(cfg) {
   p.append(el("div", { class: "hint", style: "margin-top:8px" },
     "hover a verdict for the why · floor = the price where net margin " +
     "hits the buy-ready line — no competitor, cap or knob can push under " +
-    "it; rivals already below it read as 'outpriced', never chased"));
+    "it; rivals already below it read as 'outpriced', never chased · " +
+    "Box = who the product page awards the buybox (Takealot weighs " +
+    "delivery, not just price) — while it's ours, cheaper rivals are " +
+    "never chased down"));
   return p;
 }
 
