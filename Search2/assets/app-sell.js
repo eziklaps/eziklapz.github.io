@@ -554,6 +554,11 @@ function buyableSectionEl(channel, account) {
   const wrap = el("div", { style: "margin:0 0 10px" },
     el("div", { style: "font-weight:650;margin:2px 0 6px" },
       `🛒 Buyable now — ${count}`));
+  if (tk && (account.holiday || {}).on) {
+    wrap.append(el("div", { class: "warnbar", style: "margin:0 0 8px;padding:8px 12px;font-size:12px" },
+      "🏖️ Holiday mode — every leadtime offer is held at 0, only DC stock " +
+      "sells (end it on the Stock desk → Holiday…)"));
+  }
   if (!rows.length) {
     wrap.append(el("div", { class: "hint" }, tk
       ? "nothing a customer can buy right now — an offer goes buyable " +

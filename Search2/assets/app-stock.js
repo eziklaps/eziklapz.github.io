@@ -163,6 +163,10 @@ function offerModeModal(r, m) {
     }
     now.push(`${r.available} sellable at home`);
     if (r.tkl != null) now.push(`DC holds ${r.tkl}`);
+    if (holidayOn(m)) {
+      now.push("holiday mode on — a leadtime choice is remembered but " +
+        "held at 0 until the holiday ends");
+    }
     const status = statusLine();
     openModal(
       el("h3", {}, `Takealot offer mode — ${r.title || r.asin}`),
@@ -200,6 +204,96 @@ function offerModeModal(r, m) {
             "changes.");
         },
       }, "Apply"),
+      el("button", {
+        class: "b wide", style: "margin-top:8px",
+        onclick: () => modalEl().close(),
+      }, "Cancel"),
+      status);
+  });
+}
+
+/* Holiday switch: one press holds EVERY Takealot leadtime offer at 0
+   (services/takealot.set_holiday, bus doc.takealot.holiday {on,
+   requested_at}) so only DC stock sells until it ends. Layered OVER the
+   standing Offer-modes, not a rewrite of them: the 6-hourly sync keeps
+   every target at 0 while on (the pass that re-pinned all 13 offers on
+   2026-09-04 after a portal "Leadtime: None"), and re-pins from the
+   shelf the moment it ends. Andrew 2026-09-08: on holiday, nobody can
+   meet a leadtime SLA. */
+function holidayKnob() {
+  return ((S.commands || {}).takealot || {}).holiday || null;
+}
+
+function holidayOn(m) {
+  return !!(((m || {}).account || {}).holiday || {}).on;
+}
+
+function holidayRowEl(m) {
+  const h = (m.account || {}).holiday || null;
+  const on = holidayOn(m);
+  const knob = holidayKnob();
+  /* A press the pipeline hasn't applied yet: the bus asks for the other
+     state than the payload shows. */
+  const pending = !!(knob && knob.requested_at && !!knob.on !== on);
+  const failed = (h && h.failed) || [];
+  const text = on
+    ? `🏖️ Holiday mode ON${h.since ? ` (${fmtAgo(h.since)})` : ""} — ` +
+      `${h.held || 0} leadtime offer${h.held === 1 ? "" : "s"} held at 0, only DC stock sells`
+    : "Holiday mode off — leadtime offers sell from home";
+  return el("div", { class: "flowrow", style: "align-items:center;gap:8px" },
+    el("span", { style: on ? "font-weight:600" : "color:var(--ink2)" }, text),
+    el("span", { style: "display:flex;gap:6px;align-items:center;flex:none" },
+      pending ? el("span", { class: "st warn" }, knob.on ? "starting…" : "ending…") : null,
+      failed.length ? el("span", { class: "st bad", title: failed.join("\n") },
+        `${failed.length} write${failed.length === 1 ? "" : "s"} failed`) : null,
+      h && h.error ? el("span", { class: "st bad", title: h.error }, "error") : null,
+      el("button", {
+        class: `b sm ${on ? "line" : "pri"}`,
+        onclick: () => holidayModal(m),
+      }, on ? "End holiday…" : "Holiday…")));
+}
+
+function holidayModal(m) {
+  withToken(() => {
+    const h = (m.account || {}).holiday || {};
+    const on = !!h.on;
+    const days = slaDays(m);
+    const leadRows = m.rows.filter((r) => r.offer
+      && (r.offer.mode === "leadtime" || r.offer.leadtime_units));
+    const status = statusLine();
+    openModal(
+      el("h3", {}, on ? "End holiday mode" : "Start holiday mode"),
+      el("p", { class: "meta", style: "white-space:normal" }, on
+        ? "Every leadtime offer goes back to its standing Offer-mode: " +
+          "leadtime products re-pin their sellable home units on the spot, " +
+          "in-stock-only ones stay at 0, and offers whose leadtime stock " +
+          "was set in the portal get back the units they had when the " +
+          "holiday began."
+        : "Holds EVERY Takealot leadtime offer at 0 — the " +
+          `${leadRows.length} on this shelf and any set in the portal — so ` +
+          "only DC stock sells and no sale can start a " +
+          `${days ? `${days}-day` : "leadtime"} ship-to-DC clock. Standing ` +
+          "Offer-modes are remembered, not changed; the 6-hourly sync keeps " +
+          "everything at 0 until you end the holiday here."),
+      !on && leadRows.length
+        ? el("p", { class: "meta", style: "white-space:normal" },
+            "Held: " + leadRows.map((r) => r.title || r.asin).join(" · "))
+        : null,
+      el("button", {
+        class: "b pri wide", style: "margin-top:12px",
+        onclick: () => {
+          busAct(on ? "end holiday mode" : "start holiday mode", (doc) => {
+            const tk = (doc.takealot ??= {});
+            tk.holiday = { on: !on, requested_at: new Date().toISOString() };
+          }, status, on
+            ? "Sent — the pipeline restores leadtime offers on its next pass " +
+              "(~30s while 'serve' is up)."
+            : "Sent — the pipeline holds every leadtime offer at 0 on its " +
+              "next pass (~30s while 'serve' is up); the portal shows " +
+              "Leadtime: None within minutes.");
+        },
+      }, on ? "End holiday — restore leadtime offers"
+            : "Start holiday — hold every leadtime offer at 0"),
       el("button", {
         class: "b wide", style: "margin-top:8px",
         onclick: () => modalEl().close(),
@@ -636,6 +730,7 @@ function renderStockDesk(root) {
             el("span", { style: "font-weight:600" }, m.account_low[0].title || m.account_low[0].sku),
             el("span", { class: "st bad" }, `🔴 ${m.account_low[0].stock} left`))
         : null,
+      holidayRowEl(m),
       el("div", { class: "fs", style: "margin:4px 0 0" },
         tkRows.length && tkRows.every((o) => o.stock == null)
           ? "leadtime-model offers — stock counts appear once offers carry warehouse stock"
@@ -2119,6 +2214,8 @@ function stockRow(r, m) {
     const days = slaDays(m, r);
     if (o.mode_error) {
       sub.push(`🛒 offer mode ⚠ ${o.mode_error}`);
+    } else if (holidayOn(m) && (o.mode === "leadtime" || o.leadtime_units)) {
+      sub.push("🛒 offer: leadtime held at 0 — holiday mode");
     } else if (o.mode === "dc_only") {
       sub.push("🛒 offer: in-stock only — home withheld");
     } else if (o.mode === "leadtime") {
