@@ -2270,5 +2270,3 @@ function stockRow(r, m) {
         onclick: () => offerModeModal(r, m),
       }, "Offer…") : null));
 }
-
-/* deployed 2026-09-08 with holiday mode — cache-key bump, not in main */

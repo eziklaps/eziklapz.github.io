@@ -989,5 +989,3 @@ function downloadLoadsheetEl(loadsheet) {
   a.remove();
   URL.revokeObjectURL(url);
 }
-
-/* deployed 2026-09-08 with holiday mode — cache-key bump, not in main */
