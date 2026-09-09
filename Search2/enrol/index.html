@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Search2 — enrol a device</title>
+  <link rel="stylesheet" href="../assets/app.css?v=a33fc8b4">
+  <script src="../assets/common.js?v=e5efa9a9" defer></script>
+  <style>
+    /* One card, the desk's tokens. The QR is inline SVG the API drew
+       (segno); the code beneath it is what a Windows laptop types. */
+    .enrolwrap { min-height: 100vh; background: var(--bg); display: grid; place-items: start center; padding: 40px 16px; box-sizing: border-box; }
+    .enrolcard { width: 100%; max-width: 520px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px 20px; }
+    .enrolcard h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -.02em; }
+    .enrolcard .sub { font-size: 12.5px; color: var(--ink2); margin-top: 4px; line-height: 1.5; }
+    .qr { display: grid; place-items: center; margin: 18px 0 8px; min-height: 120px; }
+    .qr svg { width: 220px; height: 220px; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 24px; letter-spacing: .12em; text-align: center; font-weight: 600; margin-top: 6px; user-select: all; }
+    .ttl { text-align: center; font-size: 12px; color: var(--muted); margin-top: 4px; min-height: 16px; }
+    .actions { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+    .devs { margin-top: 22px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+    .devs h2 { font-size: 12px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+    .dev { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-faint); font-size: 13px; }
+    .dev .n { flex: 1; min-width: 0; }
+    .dev .n small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+    .err { color: var(--bad); font-size: 12.5px; margin-top: 10px; min-height: 18px; text-align: center; }
+    .gone { text-align: center; padding: 30px 0 20px; color: var(--ink2); font-size: 13px; }
+    .gone a { color: var(--acc); }
+  </style>
+</head>
+<body>
+  <div class="enrolwrap">
+    <div class="enrolcard">
+      <h1>Enrol a device</h1>
+      <div class="sub">Scan with the iPhone camera, or type the code into search3 on
+        Windows. Each code works once and dies after five minutes; the passphrase
+        never leaves this browser.</div>
+      <div id="body"></div>
+    </div>
+  </div>
+  <script>
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+    let expiresAt = null, tick = null;
+
+    function token() { return localStorage.getItem(PAT_KEY); }
+    function headers(json) {
+      const h = { Authorization: `Bearer ${token()}` };
+      if (json) h["content-type"] = "application/json";
+      return h;
+    }
+    async function api(path, body) {
+      const resp = await fetch(`${API_BASE}${path}`, body === undefined
+        ? { headers: headers(false), cache: "no-store" }
+        : { method: "POST", headers: headers(true), body: JSON.stringify(body) });
+      if (resp.status === 401) { throw new Error("locked"); }
+      if (!resp.ok) throw new Error(`${path} ${resp.status}`);
+      return resp.json();
+    }
+
+    function shell() {
+      $("body").innerHTML = `
+        <div class="qr" id="qr"></div>
+        <div class="code" id="code"></div>
+        <div class="ttl" id="ttl"></div>
+        <div class="actions">
+          <button class="b pri" id="mint">New code</button>
+        </div>
+        <div class="err" id="err"></div>
+        <div class="devs"><h2>Enrolled devices</h2><div id="devs"></div></div>`;
+      $("mint").addEventListener("click", mint);
+    }
+
+    function locked() {
+      $("body").innerHTML = `<div class="gone">Unlock the desk first, then come back —
+        this page reuses that session.<br><br><a href="../app/">Open the desk</a></div>`;
+    }
+
+    function countdown() {
+      if (!expiresAt) return;
+      const left = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+      $("ttl").textContent = left > 0
+        ? `expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`
+        : "expired — mint a new one";
+      if (left <= 0) { clearInterval(tick); tick = null; $("qr").style.opacity = .25; }
+    }
+
+    async function mint() {
+      $("err").textContent = "";
+      $("mint").disabled = true;
+      try {
+        const m = await api("/v3/auth/enrol", {});
+        $("qr").innerHTML = m.svg || `<div class="sub">QR unavailable on the server — type the code.</div>`;
+        $("qr").style.opacity = 1;
+        $("code").textContent = m.code;
+        expiresAt = new Date(m.expires_at).getTime();
+        if (tick) clearInterval(tick);
+        tick = setInterval(countdown, 1000);
+        countdown();
+        // Poll the list so the moment the phone redeems, it appears here.
+        const started = Date.now();
+        const poll = setInterval(async () => {
+          if (Date.now() - started > 330000) { clearInterval(poll); return; }
+          await list();
+        }, 4000);
+      } catch (e) {
+        if (e.message === "locked") { locked(); return; }
+        $("err").textContent = `Could not mint a code: ${e.message}`;
+      } finally {
+        if ($("mint")) $("mint").disabled = false;
+      }
+    }
+
+    async function list() {
+      try {
+        const r = await api("/v3/auth/devices");
+        const rows = r.devices || [];
+        $("devs").innerHTML = rows.length ? rows.map((d) => `
+          <div class="dev">
+            <div class="n">${esc(d.name)} <span class="pill mute">${esc(d.platform)}</span>
+              <small>enrolled ${fmtAgo(d.enrolled_at)} · seen ${fmtAgo(d.last_seen_at)}${d.app_version ? " · v" + esc(d.app_version) : ""}</small>
+            </div>
+            <button class="b xs danger" data-id="${esc(d.device_id)}" data-name="${esc(d.name)}">Revoke</button>
+          </div>`).join("")
+          : `<div class="sub">None yet.</div>`;
+        for (const b of $("devs").querySelectorAll("button[data-id]")) {
+          b.addEventListener("click", async () => {
+            if (!confirm(`Revoke ${b.dataset.name}? It will need a new code to get back in.`)) return;
+            await api("/v3/auth/revoke", { device_id: b.dataset.id });
+            await list();
+          });
+        }
+      } catch (e) {
+        if (e.message === "locked") { locked(); return; }
+        $("devs").innerHTML = `<div class="err">${esc(e.message)}</div>`;
+      }
+    }
+
+    function fmtAgo(iso) {
+      if (!iso) return "never";
+      const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+      if (s < 90) return "just now";
+      if (s < 3600) return `${Math.round(s / 60)} min ago`;
+      if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+      return `${Math.round(s / 86400)} d ago`;
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      if (!token()) { locked(); return; }
+      shell();
+      list();
+    });
+  </script>
+</body>
+</html>
