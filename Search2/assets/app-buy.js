@@ -1,6 +1,7 @@
 /* Buy desk — sourcing & ordering across both demand channels: a master
    table (Amazon / Takealot / Reorder / Ordered tabs) with a sticky detail
-   panel.
+   panel. Filters: buy-ready (the default view) and New products (not yet
+   on Takealot under our account — services/winners.listed_doc_ids).
    Ordering is REAL: the modal commits an order intent to the command bus
    and the pipeline re-verifies price/freight/margin before placing.
    Row cells here are shared with the Today desk's "best of" table. */
