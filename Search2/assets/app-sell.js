@@ -19,10 +19,11 @@ function renderSellDesk(root) {
   const azCount = (az.intents || []).length;
   const tkCount = (tk.intents || []).length;
 
-  root.append(deskHead("Sell",
-    `${azCount} Amazon · ${tkCount} Takealot intents · queueing is always ` +
-    "safe — nothing posts until the switches arm · updated " +
-    fmtAgo(data.generated_at)));
+  root.append(deskHead("Sell", [
+    { text: `${azCount} Amazon · ${tkCount} Takealot intents`,
+      title: "queueing is always safe — nothing posts until the switches arm" },
+    { text: "updated", ago: data.generated_at, plain: true },
+  ]));
 
   const tab = (id, label) => el("button", {
     class: `tab${S.sellTab === id ? " active" : ""}`,
@@ -47,7 +48,9 @@ function renderSellDesk(root) {
    adapters differ per channel. */
 function renderSellChannel(root, channel, data) {
   const status = statusLine();
-  root.append(candidatesPanelEl(channel, data, status));
+  // Amazon has no candidates shelf (placed orders queue their own intents);
+  // its manual queue-by-ASIN row sits at the foot of the intents panel.
+  if (channel !== "amazon") root.append(candidatesPanelEl(channel, data, status));
   root.append(intentsPanelEl(channel, data, status));
   root.append(el("div", {
     style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start",
@@ -97,12 +100,11 @@ function repricerPanel(cfg) {
           enabled: !on, requested_at: new Date().toISOString(),
         };
       }, null, "");
-      btn.replaceWith(el("span", { class: "st warn" }, "🕐 applying"));
+      btn.replaceWith(el("span", { class: "st warn" }, "applying"));
     },
   }, on ? "Switch off" : "Switch on…");
 
   const p = panelEl("Repricer", {
-    soft: "— stay winning on both channels",
     right: cfg.last_pass_at
       ? el("span", {}, "last pass ", agoSpan(cfg.last_pass_at))
       : "no pass yet",
@@ -128,8 +130,9 @@ function repricerPanel(cfg) {
     const table = el("table", { class: "grid" },
       el("tr", {}, el("th", {}, "Offer"), el("th", {}, "Channel"),
         el("th", {}, "Current"), el("th", {}, "Floor"),
-        el("th", {}, "Best rival"), el("th", {}, "Box"),
-        el("th", {}, "Verdict"),
+        el("th", {}, "Best rival"),
+        el("th", { title: "who the product page awards the buybox (Takealot weighs delivery, not just price) — while it's ours, cheaper rivals are never chased down" }, "Box"),
+        el("th", { title: "hover a verdict for the why · floor = the price where net margin hits the buy-ready line; rivals already below it read as 'outpriced', never chased" }, "Verdict"),
         el("th", {}, "Target"), el("th", {}, "When")));
     for (const r of rows) {
       table.append(el("tr", {},
@@ -156,13 +159,6 @@ function repricerPanel(cfg) {
       : "no decisions yet — run the 'repricer' stage (Machine desk) to " +
         "preview what the automation would do, or arm the switch"));
   }
-  p.append(el("div", { class: "hint", style: "margin-top:8px" },
-    "hover a verdict for the why · floor = the price where net margin " +
-    "hits the buy-ready line — no competitor, cap or knob can push under " +
-    "it; rivals already below it read as 'outpriced', never chased · " +
-    "Box = who the product page awards the buybox (Takealot weighs " +
-    "delivery, not just price) — while it's ours, cheaper rivals are " +
-    "never chased down"));
   return p;
 }
 
@@ -236,7 +232,10 @@ function candidatesPanelEl(channel, data, status) {
                    || (b.margin_total ?? -1) - (a.margin_total ?? -1));
 
   const p = panelEl("Offer candidates", {
-    soft: "— winners you could sell on Takealot but haven't queued",
+    right: el("span", {
+      title: "queueing commits the intent; the offer only POSTs once the " +
+             "switches arm — barcodes are captured or fetched server-side, never guessed",
+    }, "winners not yet queued on Takealot"),
   });
   if (!rows.length) {
     p.append(emptyLine("no candidates yet — run pull-takealot (discovery) " +
@@ -254,8 +253,8 @@ function candidatesPanelEl(channel, data, status) {
   for (const r of rows) {
     table.append(el("tr", { "data-focus": r.id || "" },
       el("td", { class: "t" }, r.url
-        ? el("a", { href: r.url, target: "_blank", rel: "noopener", class: "rowtitle" }, r.title || r.id)
-        : el("span", { class: "rowtitle" }, r.title || r.id)),
+        ? el("a", { href: r.url, target: "_blank", rel: "noopener", class: "rowtitle" }, cleanTitle(r.title) || r.id)
+        : el("span", { class: "rowtitle" }, cleanTitle(r.title) || r.id)),
       el("td", { class: "t" }, el("span", {
         class: `tag ${r.source === "discovery" ? "ok" : ""}`,
         title: r.source === "discovery"
@@ -289,16 +288,15 @@ function candidatesPanelEl(channel, data, status) {
           ? (r.barcode ? shelfActionEl(r, { barcode: r.barcode }, status) : "")
           : shelfActionEl(r, { plid: r.plid }, status))));
   }
-  p.append(el("div", { class: "scroll-x" }, table),
-    el("div", { class: "hint", style: "margin-top:8px" },
-      "queueing commits the intent; the offer only POSTs once the switches " +
-      "arm — barcodes are captured or fetched server-side, never guessed"));
+  p.append(el("div", { class: "scroll-x" }, table));
   return p;
 }
 
-function amazonCandidatesPanelEl(data, status) {
-  const p = panelEl("Offer candidates", {
-    soft: "— placed orders auto-create Amazon intents; this is the manual twin",
+/* Amazon's manual twin: placed orders auto-create their intents, so the
+   only shelf is this queue-by-ASIN row at the foot of the intents panel. */
+function amazonQueueRow(status) {
+  const p = el("div", {
+    style: "margin-top:12px;padding-top:12px;border-top:1px solid var(--line-soft)",
   });
   const asinInput = el("input", {
     type: "text", class: "in mono", placeholder: "ASIN (e.g. B0ABC12345)",
@@ -324,8 +322,8 @@ function amazonCandidatesPanelEl(data, status) {
         asinInput.value = "";
       },
     }, "Queue listing intent"),
-    el("span", { class: "hint" }, "sourcing candidates live on the Buy desk — " +
-      "ordering a winner queues its listing by itself")));
+    el("span", { class: "hint" }, "placed orders queue their own listing — " +
+      "this is the manual path")));
   return p;
 }
 
@@ -349,7 +347,7 @@ function intentsPanelEl(channel, data, status) {
         data.loadsheet
           ? el("button", {
               class: "b sm line", onclick: () => downloadLoadsheetEl(data.loadsheet),
-            }, "⬇ Download loadsheet CSV") : null));
+            }, "Download loadsheet CSV") : null));
     }
   }
 
@@ -365,11 +363,7 @@ function intentsPanelEl(channel, data, status) {
       : "no Amazon listing intents — placed orders auto-create them, or " +
         "queue one by ASIN above"));
   }
-  if (channel === "takealot") {
-    p.append(el("div", { class: "hint", style: "margin-top:8px" },
-      "⚠ offers on a real barcode can never be deleted via the API — only " +
-      "disabled in the Seller Portal; the typed LIST confirmation stays for that reason"));
-  }
+  if (channel === "amazon") p.append(amazonQueueRow(status));
   p.append(status);
   return p;
 }
@@ -440,7 +434,7 @@ function intentTableEl(intents, channel, statusEl) {
   for (const it of intents) {
     table.append(el("tr", { "data-focus": it.asin || "" },
       el("td", { class: "t" },
-        el("span", { class: "rowtitle", title: it.id }, it.title || it.asin || it.id)),
+        el("span", { class: "rowtitle", title: it.id }, cleanTitle(it.title) || it.asin || it.id)),
       el("td", { class: "t" }, stateWord(it.state),
         PARKED.has(it.state) || it.state === "proposed"
           ? intentReasonEl(it) : null),
@@ -508,7 +502,7 @@ function accountPanelEl(channel, account) {
   p.append(chips);
   for (const low of account.low_stock || []) {
     p.append(el("div", { class: "warnbar bad", style: "margin-bottom:8px;padding:8px 12px;font-size:12px" },
-      `▲ LOW STOCK: ${low.title || low.sku} — ${low.stock} left`));
+      `Low stock: ${low.title || low.sku} — ${low.stock} left`));
   }
   p.append(buyableSectionEl(channel, account));
   if ((account.rows || []).length) {
@@ -523,8 +517,8 @@ function accountPanelEl(channel, account) {
     for (const o of account.rows) {
       table.append(el("tr", {},
         el("td", { class: "t" }, o.url
-          ? el("a", { href: o.url, target: "_blank", rel: "noopener", class: "rowtitle" }, o.title || o.sku)
-          : el("span", { class: "rowtitle" }, o.title || o.sku)),
+          ? el("a", { href: o.url, target: "_blank", rel: "noopener", class: "rowtitle" }, cleanTitle(o.title) || o.sku)
+          : el("span", { class: "rowtitle" }, cleanTitle(o.title) || o.sku)),
         el("td", { class: "t" }, el("span", {
           class: `st ${OFFER_STATUS_TONE[o.status] || "mute"}`,
         }, (o.status || "?").replace(/_by_seller|_by_takealot/, ""))),
@@ -538,7 +532,6 @@ function accountPanelEl(channel, account) {
     }
     p.append(el("div", { class: "scroll-x" }, table));
   }
-  p.append(el("div", { class: "hint", style: "margin-top:8px" }, tkHint(channel)));
   return p;
 }
 
@@ -553,7 +546,7 @@ function buyableSectionEl(channel, account) {
   const count = (account.counts || {}).buyable || rows.length;
   const wrap = el("div", { style: "margin:0 0 10px" },
     el("div", { style: "font-weight:650;margin:2px 0 6px" },
-      `🛒 Buyable now — ${count}`));
+      `Buyable now · ${count}`));
   if (tk && (account.holiday || {}).on) {
     wrap.append(el("div", { class: "warnbar", style: "margin:0 0 8px;padding:8px 12px;font-size:12px" },
       "🏖️ Holiday mode — every leadtime offer is held at 0, only DC stock " +
@@ -577,8 +570,8 @@ function buyableSectionEl(channel, account) {
   for (const o of rows) {
     table.append(el("tr", {},
       el("td", { class: "t" }, o.url
-        ? el("a", { href: o.url, target: "_blank", rel: "noopener", class: "rowtitle" }, o.title || o.sku)
-        : el("span", { class: "rowtitle" }, o.title || o.sku)),
+        ? el("a", { href: o.url, target: "_blank", rel: "noopener", class: "rowtitle" }, cleanTitle(o.title) || o.sku)
+        : el("span", { class: "rowtitle" }, cleanTitle(o.title) || o.sku)),
       el("td", {}, fmtR(o.selling_price)),
       el("td", {}, o.stock ?? "—"),
       tk ? el("td", {}, o.leadtime_units ? fmtNum(o.leadtime_units) : "—")
@@ -619,7 +612,7 @@ function probePanelEl(probe) {
         el("th", {}, "Views 30d"), el("th", {}, "Status")));
     for (const o of top) {
       table.append(el("tr", {},
-        el("td", { class: "t" }, el("span", { class: "rowtitle" }, o.title || o.sku)),
+        el("td", { class: "t" }, el("span", { class: "rowtitle" }, cleanTitle(o.title) || o.sku)),
         el("td", {}, fmtNum(o.wishlist_30d)),
         el("td", {}, fmtNum(o.views_30d)),
         el("td", { class: "t" }, el("span", {
@@ -688,11 +681,11 @@ function sellSalesPanel(sales, label) {
         el("th", {}, "Qty"), el("th", {}, "Price"),
         el("th", {}, "Est. margin"), el("th", {}, "State"),
         el("th", {}, "When"),
-        shippable ? el("th", {}, "Fulfilment (MFN)") : null));
+        shippable ? el("th", { title: "ZA has no buy-shipping API — buy the courier label yourself, then confirm here; the pipeline POSTs the shipment confirmation" }, "Fulfilment (MFN)") : null));
     for (const s of recent) {
       table.append(el("tr", { "data-focus": s.order_id || "" },
         el("td", { class: "t mono", style: "font-size:11.5px" }, s.order_id),
-        el("td", { class: "t" }, el("span", { class: "rowtitle" }, s.title || s.sku || "—")),
+        el("td", { class: "t" }, el("span", { class: "rowtitle" }, cleanTitle(s.title) || s.sku || "—")),
         el("td", {}, fmtNum(s.quantity)),
         el("td", {}, fmtR(s.selling_price)),
         estMarginCell(s.asin || asinFromSku(s.sku)),
@@ -703,11 +696,6 @@ function sellSalesPanel(sales, label) {
         shippable ? el("td", { class: "t" }, shipCellEl(s)) : null));
     }
     p.append(el("div", { class: "scroll-x" }, table));
-    if (shippable) {
-      p.append(el("div", { class: "hint", style: "margin-top:8px" },
-        "ZA has no buy-shipping API — buy the courier label yourself, then " +
-        "confirm here; the pipeline POSTs shipmentConfirmation to the Orders API"));
-    }
   } else {
     p.append(emptyLine((sales || {}).polled_at
       ? `nothing sold yet — ${label} checked ${fmtAgo(sales.polled_at)}`
@@ -729,7 +717,7 @@ function shipCellEl(s) {
       "confirm failed — retry"));
   }
   cell.append(el("button", { class: "b sm pri", onclick: () => confirmShipModalEl(s) },
-    "🚚 Confirm shipment"));
+    "Confirm shipment"));
   if (s.latest_ship_date) {
     cell.append(el("div", {
       style: `font-size:11px;margin-top:3px;color:var(--${dueTone(s.latest_ship_date) === "bad" ? "bad" : "ink2"})`,
@@ -763,7 +751,7 @@ function confirmShipModalEl(s) {
         }, 2), `Dashboard: confirm shipment ${s.order_id}`);
         status.textContent = "";
         btn.replaceWith(el("div", { class: "note ok", style: "margin-top:12px" },
-          el("b", {}, "✅ Committed. "),
+          el("b", {}, "Committed. "),
           "The pipeline POSTs the confirmation to Amazon within ~30s while " +
           "serve is up; the sales row flips once it lands."));
       } catch (e) {
@@ -847,7 +835,7 @@ function sellTodosPanel(todos) {
         onclick: () => busAct(`grant ${ex.product_type}`, (doc) => prunePush(doc, "listings", {
           grant: ex.product_type, requested_at: new Date().toISOString(),
         }), status,
-        `✅ grant noted — blocked intents re-prepare on the next listings pass.`),
+        `grant noted — blocked intents re-prepare on the next listings pass.`),
       }, "✓ Mark granted")));
   }
   if (exemptions.length) {
@@ -900,7 +888,7 @@ function sellTodosPanel(todos) {
         }, c.asin)),
         el("td", { class: "t" }, el("span", {
           class: `st ${c.risk === "blocked" ? "bad" : "warn"}`,
-        }, c.risk === "blocked" ? "⛔ blocked" : "▲ review")),
+        }, c.risk === "blocked" ? "blocked" : "▲ review")),
         el("td", { class: "t", style: "color:var(--ink2)" },
           [needs, c.reason].filter(Boolean).join(" — ") || "—"),
         el("td", {}, c.score != null ? String(Math.round(c.score)) : "—"),
@@ -937,7 +925,7 @@ function shelfActionEl(row, handle, statusEl) {
       .some((ph) => ph.asin === row.id)) {
     return el("span", { class: "st warn",
       title: "committed — the pipeline applies it within ~30s" },
-      "🕐 on the bus");
+      "on the bus");
   }
   if (row.intent) {
     return el("span", {}, stateWord(row.intent.state), " ",

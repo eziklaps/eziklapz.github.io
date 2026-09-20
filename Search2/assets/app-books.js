@@ -1,9 +1,9 @@
-/* Books desk — money: cash-position cards + the affordability gate +
-   the reconciliation workbench (bank statements ↔ ledger), monthly P&L
-   off the transactions ledger, the VAT threshold gauge, IRP6, the newest
-   ledger rows, and the documents flow (upload → drain → Gemini-extract →
-   you post; nothing posts unreviewed). Bookmarked for a later build:
-   FX/fee-anomaly watch, evidence coverage, SARS export pack,
+/* Books desk — money: four figures (cash, float above the floor, sales,
+   net), the affordability gate + knobs, the reconciliation workbench
+   (bank statements ↔ ledger), monthly P&L off the transactions ledger,
+   tax, the newest ledger rows, and the documents flow (upload → drain →
+   Gemini-extract → you post; nothing posts unreviewed). Bookmarked for a
+   later build: FX/fee-anomaly watch, evidence coverage, SARS export pack,
    order-to-cash strip. */
 
 function renderBooksDesk(root) {
@@ -13,10 +13,34 @@ function renderBooksDesk(root) {
   const orders = a.orders || {};
   const pnl = acc.pnl || [];
   const month = pnl[pnl.length - 1] || {};
+  const out = orders.outstanding || {};
 
-  root.append(deskHead("Books",
-    "cash → ledger → views · append-only ledger, corrections are reversing " +
-    "entries · actions ride the command queue · updated " + fmtAgo(a.generated_at)));
+  /* Xero feed pulse: auth failure / errors / staleness. Ages are
+     computed here at render time — the payload carries timestamps only.
+     Freshness is RECONCILIATION freshness: the balance's as_of is the
+     newest coded line, so a lazy week in Xero ages toward gate RED. */
+  const feed = bank.feed || {};
+  const feedAgeDays = feed.synced_at
+    ? (Date.now() - new Date(feed.synced_at).getTime()) / 86400e3 : null;
+
+  root.append(deskHead("Books", [
+    feed.configured
+      ? (feed.synced_at
+          ? { text: "Xero synced", ago: feed.synced_at,
+              tone: feedAgeDays > 2 ? "warn" : "ok",
+              title: "the feed only sees lines coded in Xero — reconciling " +
+                     "there is what keeps balances fresh" +
+                     (feed.lines_added ? ` · ${feed.lines_added} new lines` : "") }
+          : { text: feed.connected ? "Xero connected · first sync pending"
+                                   : "Xero auth pending", tone: "warn" })
+      : null,
+    out.count
+      ? { text: `${out.count} order${out.count > 1 ? "s" : ""} unpaid · ${fmtR(out.total_rand)}`,
+          tone: "warn",
+          node: el("a", { href: ALI_ORDERS_URL, target: "_blank", rel: "noopener" }, "pay ↗") }
+      : { text: "nothing awaiting payment", plain: true },
+    { text: "updated", ago: a.generated_at, plain: true },
+  ]));
 
   if ((acc.finances || {}).role_denied_at) {
     root.append(el("div", { class: "warnbar bad" },
@@ -28,14 +52,6 @@ function renderBooksDesk(root) {
       "Affordability gate RED — order placements are held: " +
       ((bank.gate || {}).reasons || []).join(" · ")));
   }
-
-  /* Xero feed pulse: auth failure / errors / staleness. Ages are
-     computed here at render time — the payload carries timestamps only.
-     Freshness is RECONCILIATION freshness: the balance's as_of is the
-     newest coded line, so a lazy week in Xero ages toward gate RED. */
-  const feed = bank.feed || {};
-  const feedAgeDays = feed.synced_at
-    ? (Date.now() - new Date(feed.synced_at).getTime()) / 86400e3 : null;
   if (feed.auth_failed_at) {
     root.append(el("div", { class: "warnbar bad" },
       "Xero feed auth FAILED — the rotated refresh token was likely " +
@@ -54,68 +70,61 @@ function renderBooksDesk(root) {
       "aging toward gate RED."));
   }
 
-  /* awaiting payment + stock chips */
-  const out = orders.outstanding || {};
-  const inv = orders.inventory || {};
-  root.append(el("div", { class: "chiprow", style: "margin:0" },
-    out.count
-      ? pill("warn", `${out.count} order${out.count > 1 ? "s" : ""} awaiting payment — ${fmtR(out.total_rand)}`)
-      : pill("ok", "no payments outstanding"),
-    el("a", {
-      class: "b sm line",
-      href: "https://www.aliexpress.com/p/order/index.html",
-      target: "_blank", rel: "noopener",
-    }, "💳 Pay on AliExpress ↗"),
-    inv.rows
-      ? el("span", {
-          class: "pill ok", style: "cursor:pointer",
-          onclick: () => setDesk("stock", { focus: "stock-table" }),
-        }, `📥 ${fmtNum(inv.units)} units on hand — ${fmtR(inv.value_rand)} landed (estimate) · Stock desk →`)
-      : null,
-    feed.configured
-      ? (feed.synced_at
-          ? pill(feedAgeDays > 2 ? "warn" : "ok",
-              `🏦 Xero feed synced ${fmtAgo(feed.synced_at)}` +
-              (feed.lines_added ? ` · ${feed.lines_added} new` : ""))
-          : pill("warn", feed.connected
-              ? "🏦 Xero feed connected — first sync pending"
-              : "🏦 Xero app configured — auth pending"))
-      : null));
-
-  /* cash-position cards (statement/manual as-of balances + float) */
-  root.append(cashStrip(bank));
-
-  /* P&L KPI cards */
+  /* the four figures: cash (largest account, others folded), float above
+     the floor (what the gate lets you spend), sales, net */
+  const accounts = bank.accounts || [];
+  const gate = bank.gate || {};
+  const knobs = gate.knobs || {};
+  const maxAge = knobs.max_balance_age_days ?? 7;
+  const primary = [...accounts].filter((x) => x.balance != null)
+    .sort((x, y) => (y.balance || 0) - (x.balance || 0))[0] || accounts[0] || null;
+  const others = accounts.filter((x) => x !== primary && x.balance != null);
+  const othersTotal = others.reduce((s, x) => s + (x.currency === "USD"
+    ? (x.balance || 0) * (gate.fx_rate || 18) : (x.balance || 0)), 0);
   const rev = month.revenue || {};
   const totalSales = (rev.amazon || 0) + (rev.takealot || 0);
   root.append(el("div", { class: "kpis" },
-    kpi(`Sales · Amazon`, fmtR(rev.amazon || 0),
-      totalSales ? `${Math.round(((rev.amazon || 0) / totalSales) * 100)}% of ${month.month || "this month"}` : month.month || ""),
-    kpi(`Sales · Takealot`, fmtR(rev.takealot || 0),
-      totalSales ? `${Math.round(((rev.takealot || 0) / totalSales) * 100)}% · second channel` : ""),
-    kpi("Total sales", fmtR(totalSales), `${month.month || "this month"} · both channels`),
+    kpi(primary ? `Cash · ${primary.bank || primary.account}` : "Cash",
+      primary ? fmtMoney(primary.balance, primary.currency) : "—",
+      el("span", { style: "display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap" },
+        primary ? ageChip(primary.age_days, maxAge) : null,
+        primary && primary.as_of
+          ? el("span", { title: `${primary.source} · ${fmtNum(primary.lines)} lines` },
+              fmtDate(primary.as_of)) : null,
+        others.length
+          ? el("span", { title: others.map((o) =>
+              `${o.account} ${fmtMoney(o.balance, o.currency)}`).join(" · ") },
+              `+ ${fmtR(othersTotal)} in ${others.length} other`) : null,
+        el("a", {
+          onclick: () => confirmBalanceModal(primary ? primary.account : null),
+        }, "confirm ✎"))),
+    kpi("Above the floor",
+      gate.available_rand != null
+        ? el("span", { class: gate.available_rand > 0 ? "v" : "v bad" }, fmtR(gate.available_rand))
+        : "—",
+      el("span", { style: "display:inline-flex;gap:6px;align-items:center" },
+        pill(GATE_TONE[gate.status] || "mute", (gate.status || "unarmed").toUpperCase()),
+        `floor ${fmtR(knobs.cash_floor_rands ?? 0)}`)),
+    kpi(`Sales · ${month.month || "this month"}`, fmtR(totalSales),
+      `Amazon ${fmtR(rev.amazon || 0)} · Takealot ${fmtR(rev.takealot || 0)}`),
     kpi("Net · after costs",
       el("span", { class: (month.net ?? 0) >= 0 ? "v ok" : "v hot" }, fmtR(month.net ?? 0)),
       month.estimate_rand ? `${fmtR(month.estimate_rand)} rests on estimates` : "actuals only")));
 
   /* main grid */
-  const left = el("div", { style: "display:flex;flex-direction:column;gap:14px;min-width:0" });
-  const right = el("div", { style: "display:flex;flex-direction:column;gap:14px;min-width:0" });
+  const left = el("div", { style: "display:flex;flex-direction:column;gap:16px;min-width:0" });
+  const right = el("div", { style: "display:flex;flex-direction:column;gap:16px;min-width:0" });
   root.append(el("div", {
-    style: "display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:14px;align-items:start",
+    style: "display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:16px;align-items:start",
     class: "bookgrid",
   }, left, right));
 
-  left.append(pnlPanel(acc, pnl));
   left.append(reconPanel(bank));
+  left.append(pnlPanel(acc, pnl));
   left.append(ledgerPanel(acc));
   right.append(gatePanel(bank));
-  right.append(taxPanel(acc));
   right.append(docsPanelEl(acc));
-
-  root.append(el("div", { class: "hint" },
-    "Bookmarked for a later build: FX & fee-anomaly watch, evidence " +
-    "coverage, the SARS export pack and the order-to-cash strip."));
+  right.append(taxPanel(acc));
 }
 
 /* ---- Cash position: as-of balances per account + the estimated float.
@@ -172,45 +181,11 @@ function confirmBalanceModal(account) {
             prunePush(bucket, "balances",
               { account: acct, amount, requested_at: new Date().toISOString() }, 2);
           }, status,
-            `✅ ${acct} balance sent — applied within ~30s ('serve' must be up).`);
+            `${acct} balance sent — applied within ~30s ('serve' must be up).`);
         },
       }, "Stamp balance"),
       status);
   });
-}
-
-function cashStrip(bank) {
-  const accounts = bank.accounts || [];
-  const gate = bank.gate || {};
-  const maxAge = (gate.knobs || {}).max_balance_age_days ?? 7;
-  const wrap = el("div", { class: "kpis" });
-  for (const acc of accounts) {
-    wrap.append(el("div", { class: "kpi" },
-      el("div", { class: "l" }, acc.account),
-      el("div", { class: "v" }, fmtMoney(acc.balance, acc.currency)),
-      el("div", { class: "s", style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap" },
-        ageChip(acc.age_days, maxAge),
-        el("span", {}, acc.balance != null
-          ? `${acc.source} · ${fmtDate(acc.as_of)} · ${fmtNum(acc.lines)} lines`
-          : "drop a statement, or"),
-        el("a", {
-          style: "cursor:pointer;color:var(--acc)",
-          onclick: () => confirmBalanceModal(acc.account),
-        }, "confirm ✎"))));
-  }
-  wrap.append(el("div", { class: "kpi" },
-    el("div", { class: "l" }, "Float · est. ZAR"),
-    el("div", { class: "v" }, gate.cash_zar != null ? fmtR(gate.cash_zar) : "—"),
-    el("div", { class: "s", style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap" },
-      gate.cash_zar != null
-        ? el("span", {}, `incl. $ ${fmtNum(gate.usd)} @ ${gate.fx_rate} · ` +
-            `${fmtR(gate.available_rand)} above the floor`)
-        : el("span", {}, "no balance evidence yet —"),
-      accounts.length ? null : el("a", {
-        style: "cursor:pointer;color:var(--acc)",
-        onclick: () => confirmBalanceModal(null),
-      }, "confirm a balance ✎"))));
-  return wrap;
 }
 
 /* ---- Affordability gate: the pre-condition for (auto-)ordering.
@@ -231,12 +206,11 @@ function gatePanel(bank) {
   const knobs = gate.knobs || {};
   const status = statusLine();
   const p = panelEl("Affordability gate", {
-    soft: "— cash says yes before any order places",
-    right: pill(GATE_TONE[gate.status] || "mute",
-      (gate.status || "?").toUpperCase()),
+    right: el("span", {},
+      pill(GATE_TONE[gate.status] || "mute", (gate.status || "?").toUpperCase()),
+      el("span", { class: "hint", style: "margin-left:8px" }, GATE_WORD[gate.status] || "")),
   });
   p.dataset.focus = "gate";
-  p.append(el("div", { class: "hint" }, GATE_WORD[gate.status] || ""));
 
   const dim = (label, value, bad) => el("div", { class: "kvrow" },
     el("span", { class: "k" }, label),
@@ -302,7 +276,7 @@ function gatePanel(bank) {
   };
   for (const reason of gate.reasons || []) {
     p.append(el("div", { class: "note warn", style: "margin-top:6px" },
-      el("div", {}, `⛔ ${reason}`),
+      el("div", {}, reason),
       el("div", {
         style: "display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center",
       }, ...fixFor(reason))));
@@ -310,8 +284,8 @@ function gatePanel(bank) {
   for (const note of gate.watch || []) {
     const fixes = fixFor(note);
     p.append(el("div", {
-      class: "hint", style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap",
-    }, `⚠️ ${note}`,
+      class: "note", style: "margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap",
+    }, note,
       // Watch-stage balance aging gets the one-click fix too — cheaper to
       // confirm at amber than to unstick a red gate later.
       ...(/balance evidence|bank last seen/.test(note) ? fixes.slice(0, 1) : [])));
@@ -326,13 +300,16 @@ function gatePanel(bank) {
     value: knobs.max_orders_day ?? "", style: "width:64px" });
   p.append(el("div", {
     style: "display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:10px;" +
-           "padding-top:8px;border-top:1px solid var(--line-soft)",
+           "padding-top:10px;border-top:1px solid var(--line-soft)",
   },
     el("label", { class: "hint" }, "floor R", floorIn),
     el("label", { class: "hint" }, "in-flight R", inflightIn),
     el("label", { class: "hint" }, "orders/day", dayIn),
     el("button", {
-      class: "b sm", onclick: () => {
+      class: "b sm",
+      title: `knobs from ${gate.knobs_source || "config"} · RED also holds ` +
+             "manual dashboard orders — money out is money out",
+      onclick: () => {
         const floor = parseFloat(floorIn.value);
         const inflight = parseFloat(inflightIn.value);
         const day = parseInt(dayIn.value, 10);
@@ -345,12 +322,9 @@ function gatePanel(bank) {
             cash_floor_rands: floor, max_inflight_rands: inflight,
             max_orders_day: day, requested_at: new Date().toISOString(),
           };
-        }, status, "✅ Knobs sent — the gate re-judges on the next orders pass.");
+        }, status, "Knobs sent — the gate re-judges on the next orders pass.");
       },
     }, "Save knobs")),
-    el("div", { class: "hint", style: "margin-top:4px" },
-      `knobs from ${gate.knobs_source || "config"} · ` +
-      "RED also holds manual dashboard orders — money out is money out"),
     status);
   return p;
 }
@@ -370,16 +344,19 @@ function reconPanel(bank) {
   const accounts = recon.accounts || [];
   const status = statusLine();
   const p = panelEl("Reconciliation", {
-    soft: "— statement lines ↔ ledger, exceptions only",
     right: recon.unmatched_total
-      ? pill("warn", `${recon.unmatched_total} unmatched`)
+      ? el("span", {
+          title: "auto-matching is single-candidate-only: transfers pair by " +
+                 "amount, Ali orders match goods+freight as one charge · " +
+                 "wrong match? scripts/accounting_admin.py unmatch-line",
+        }, pill("warn", `${recon.unmatched_total} unmatched`))
       : (accounts.length ? pill("ok", "fully explained") : null),
   });
   p.dataset.focus = "recon";
   if (!accounts.length) {
-    p.append(emptyLine("no bank lines yet — the Xero feed lands Capitec " +
-      "lines automatically once connected; Shyft (or any bank) exports " +
-      "drop on the Documents panel and the matcher takes it from there"));
+    p.append(emptyLine("No bank lines yet — the Xero feed lands Capitec " +
+      "lines automatically once connected; bank exports drop on the " +
+      "Documents panel and the matcher takes it from there."));
     return p;
   }
   for (const acct of accounts) {
@@ -396,8 +373,8 @@ function reconPanel(bank) {
     busAct(`${sentWord} bank line`, (doc) => {
       const bucket = (doc.banking ??= {});
       prunePush(bucket, key, { id, ...entry, requested_at: new Date().toISOString() }, 2);
-    }, status, `✅ ${sentWord} sent — applied within ~30s ('serve' must be up).`);
-    row.replaceChildren(el("span", { class: "st ok" }, `✓ ${sentWord} sent`));
+    }, status, `${sentWord} sent — applied within ~30s ('serve' must be up).`);
+    row.replaceChildren(el("span", { class: "st ok" }, `${sentWord} sent`));
   }
 
   // What's already riding the bus for these lines. Without this chip the
@@ -420,8 +397,11 @@ function reconPanel(bank) {
     }
   }
 
+  const exceptions = recon.exceptions || [];
+  const CAP = 8;
+  const shown = S.booksReconAll ? exceptions : exceptions.slice(0, CAP);
   const list = el("div", { style: "margin-top:10px" });
-  for (const ex of recon.exceptions || []) {
+  for (const ex of shown) {
     const select = el("select", { class: "in", style: "font-size:12px;padding:4px 6px" },
       ...LINE_ACCOUNTS.map(([code, name]) =>
         el("option", { value: code }, `${code} ${name}`)));
@@ -430,58 +410,58 @@ function reconPanel(bank) {
         && LINE_ACCOUNTS.some(([code]) => code === q.account)) {
       select.value = q.account;
     }
-    const actions = el("div", { style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px" },
+    const actions = el("div", { class: "ra" },
+      el("span", {
+        class: "amt",
+        style: `color:var(--${(ex.amount ?? 0) < 0 ? "bad" : "ok-text"})`,
+      }, fmtMoney(ex.amount, ex.currency)),
       q ? el("span", {
         class: "st warn",
         title: "already committed to the command bus — serve applies it " +
                "within ~30s and the line then leaves this list; pressing " +
                "again just changes the target account (newest press wins)",
-      }, `🕐 ${q.kind}${q.account ? ` → ${q.account}` : ""} queued`) : null,
+      }, `${q.kind}${q.account ? ` → ${q.account}` : ""} queued`) : null,
       (ex.amount ?? 0) < 0 ? select : null,
       (ex.amount ?? 0) < 0 ? el("button", {
         class: "b sm pri",
-        onclick: (ev) => lineAct(actions, ex.id, "expense_lines",
+        onclick: () => lineAct(actions, ex.id, "expense_lines",
           { account: select.value }, "post"),
       }, "Post as expense") : null,
       el("button", {
         class: "b sm",
         onclick: () => lineAct(actions, ex.id, "dismiss_lines", {}, "dismiss"),
       }, "Dismiss"));
-    list.append(el("div", { class: "doccard", style: "margin-top:8px" },
-      el("div", { class: "dh" },
-        el("span", { class: "fn" }, (ex.description || "?").slice(0, 70)),
-        el("span", { style: "flex:1" }),
-        el("span", { class: "hint" }, `${fmtDate(ex.date)} · ${ex.account}`),
-        el("span", {
-          class: "r",
-          style: `font-variant-numeric:tabular-nums;font-weight:650;` +
-                 `color:var(--${(ex.amount ?? 0) < 0 ? "bad" : "ok-text"})`,
-        }, fmtMoney(ex.amount, ex.currency))),
+    list.append(el("div", { class: "reconrow" },
+      el("div", {},
+        el("div", { class: "rd" }, (ex.description || "?").slice(0, 70)),
+        el("div", { class: "rs" }, `${fmtDate(ex.date)} · ${ex.account}`)),
       actions));
   }
-  if (!(recon.exceptions || []).length) {
+  if (!exceptions.length) {
     list.append(el("div", { class: "hint", style: "margin-top:8px" },
-      "no exceptions — every statement line is matched, posted, a transfer " +
-      "leg, or dismissed"));
+      "No exceptions — every statement line is matched, posted, a transfer " +
+      "leg, or dismissed."));
   }
-  p.append(list, status,
-    el("div", { class: "hint", style: "margin-top:6px" },
-      "auto-matching is single-candidate-only: transfers pair by amount, " +
-      "Ali orders match goods+freight as one charge (FX-aware for the USD " +
-      "card) · wrong match? scripts/accounting_admin.py unmatch-line"));
+  p.append(list);
+  if (exceptions.length > CAP) {
+    p.append(el("div", { class: "disclose", style: "margin-top:8px" },
+      el("a", {
+        onclick: () => { S.booksReconAll = !S.booksReconAll; renderDesk(); },
+      }, S.booksReconAll ? "Show the first 8 ▴" : `Show all ${exceptions.length} ▾`)));
+  }
+  p.append(status);
   return p;
 }
 
 function pnlPanel(acc, pnl) {
   const p = panelEl("Monthly P&L", {
-    soft: "— per channel, off the transactions ledger",
     right: (acc.finances || {}).events_polled_at
       ? el("span", {}, "finances polled ", agoSpan(acc.finances.events_polled_at))
       : "Amazon Finances not yet polled",
   });
   if (!pnl.length) {
-    p.append(emptyLine("no ledger months yet — the first sale or posted " +
-      "document starts the P&L"));
+    p.append(emptyLine("No ledger months yet — the first sale or posted " +
+      "document starts the P&L."));
     return p;
   }
   const table = el("table", { class: "grid" },
@@ -489,9 +469,12 @@ function pnlPanel(acc, pnl) {
       el("th", { class: "r" }, "Takealot"), el("th", { class: "r" }, "Fees"),
       el("th", { class: "r" }, "COGS"), el("th", { class: "r" }, "Expenses"),
       el("th", { class: "r" }, "Net")));
-  for (const m of [...pnl].reverse()) {
+  for (const m of [...pnl].reverse().slice(0, 6)) {
     table.append(el("tr", {},
-      el("td", { class: "t" }, m.month + (m.estimate_rand ? " ~" : "")),
+      el("td", { class: "t", title: m.estimate_rand
+        ? `${fmtR(m.estimate_rand)} of this month rests on order-time estimates ` +
+          "until supplier actuals replace them" : "" },
+        m.month + (m.estimate_rand ? " ~" : "")),
       el("td", { class: "r" }, fmtR((m.revenue || {}).amazon)),
       el("td", { class: "r" }, fmtR((m.revenue || {}).takealot)),
       el("td", { class: "r" }, fmtR(m.fees)),
@@ -500,37 +483,38 @@ function pnlPanel(acc, pnl) {
       el("td", { class: "r", style: `font-weight:650;color:var(--${(m.net ?? 0) >= 0 ? "ok-text" : "bad"})` },
         fmtR(m.net))));
   }
-  p.append(el("div", { class: "scroll-x" }, table),
-    el("div", { class: "hint", style: "margin-top:6px" },
-      "~ = month includes estimated rows (AliExpress supplier costs post as " +
-      "order-time ZAR estimates until actuals replace them)"));
+  p.append(el("div", { class: "scroll-x" }, table));
   return p;
 }
 
 function ledgerPanel(acc) {
-  const p = panelEl("Ledger", {
-    soft: `— ${fmtNum(acc.ledger_rows || 0)} rows · append-only`,
-  });
   const tkf = acc.takealot_finances || {};
+  const p = panelEl("Ledger", {
+    right: el("span", { title: "append-only by design: corrections post a " +
+      "reversing entry plus the correction — full history via " +
+      "scripts/accounting_admin.py" },
+      `${fmtNum(acc.ledger_rows || 0)} rows · append-only`),
+  });
   if (tkf.balances) {
-    p.append(el("div", { class: "chiprow", style: "margin:0 0 8px" },
-      el("span", { class: "st ok" }, `Takealot balance R${fmtNum(tkf.balances.current)}`),
-      el("span", { class: "st mute" }, `available R${fmtNum(tkf.balances.available)}`),
-      el("span", { class: "st mute" }, `held back R${fmtNum(tkf.balances.held_back)}`),
-      el("span", { class: "st mute", title: "GET /transactions mirror" },
-        `${fmtNum(tkf.transactions_mirrored || 0)} tx mirrored`)));
+    p.append(el("div", { class: "kvrow", style: "padding-top:0" },
+      el("span", { class: "k" }, "Parked at Takealot"),
+      el("span", { class: "v", title: `${fmtNum(tkf.transactions_mirrored || 0)} transactions mirrored` },
+        `R ${fmtNum(tkf.balances.current)} · available R ${fmtNum(tkf.balances.available)}` +
+        ` · held back R ${fmtNum(tkf.balances.held_back)}`)));
   }
-  if (!(acc.recent || []).length) {
-    p.append(emptyLine("no ledger rows yet"));
+  const rows = acc.recent || [];
+  if (!rows.length) {
+    p.append(emptyLine("No ledger rows yet."));
     return p;
   }
+  const CAP = 8;
   const table = el("table", { class: "grid" },
     el("tr", {}, el("th", {}, "When"), el("th", {}, "Account"),
       el("th", {}, "Description"), el("th", { class: "r" }, "Amount"),
       el("th", {}, "Basis")));
-  for (const r of acc.recent) {
+  for (const r of (S.booksLedgerAll ? rows : rows.slice(0, CAP))) {
     table.append(el("tr", {},
-      el("td", { class: "t", style: "color:var(--muted);font-size:12px" }, fmtDate(r.posted_at)),
+      el("td", { class: "t", style: "color:var(--muted);font-size:12px;white-space:nowrap" }, fmtDate(r.posted_at)),
       el("td", { class: "t", style: "font-size:12px" },
         `${r.account ?? ""} ${r.account_name ?? ""}`),
       el("td", { class: "t", style: "color:var(--ink2);font-size:12px" }, r.description ?? ""),
@@ -541,10 +525,13 @@ function ledgerPanel(acc) {
         style: "font-weight:400;font-size:12px",
       }, r.basis ?? ""))));
   }
-  p.append(el("div", { class: "scroll-x" }, table),
-    el("div", { class: "hint", style: "margin-top:6px" },
-      "append-only by design: corrections post a reversing entry plus the " +
-      "correction — full history via scripts/accounting_admin.py"));
+  p.append(el("div", { class: "scroll-x" }, table));
+  if (rows.length > CAP) {
+    p.append(el("div", { class: "disclose", style: "margin-top:8px" },
+      el("a", {
+        onclick: () => { S.booksLedgerAll = !S.booksLedgerAll; renderDesk(); },
+      }, S.booksLedgerAll ? "Show the newest 8 ▴" : `Show all ${rows.length} ▾`)));
+  }
   return p;
 }
 
@@ -553,16 +540,18 @@ function taxPanel(acc) {
   const irp6 = acc.irp6 || {};
   const pct = Math.round((supplies.fraction || 0) * 100);
   const p = panelEl("Tax", {
-    right: acc.vat_registered ? pill("warn", "VAT REGISTERED") : null,
+    right: acc.vat_registered ? pill("warn", "VAT REGISTERED") : el("span", {
+      title: "records live in SA for 5 years — the documents panel is the evidence store",
+    }, "not VAT registered"),
   });
   p.append(el("div", { class: "kvrow" },
-    el("span", { class: "k" }, "VAT registration threshold — rolling 12mo"),
-    el("span", { class: "v", style: "font-weight:650" }, `${pct}%`)));
+    el("span", { class: "k" }, "VAT threshold · rolling 12mo"),
+    el("span", { class: "v", style: "font-weight:650" },
+      `${pct}%`,
+      el("span", { class: "hint", style: "margin-left:6px" },
+        `${fmtR(supplies.total_rand)} of ${fmtR(supplies.threshold_rand)}`))));
   p.append(el("div", { class: "gauge" },
     el("span", { style: `width:${Math.min(100, pct)}%` })));
-  p.append(el("div", { class: "hint", style: "margin-top:4px" },
-    `${fmtR(supplies.total_rand)} of ${fmtR(supplies.threshold_rand)}` +
-    (pct < 60 ? " — headroom; the alert arms at 60%" : " — nearing the threshold")));
   p.append(el("div", { class: "kvrow", style: "margin-top:8px;padding-top:8px;border-top:1px solid var(--line-soft)" },
     el("span", { class: "k" },
       `${irp6.next_deadline_label || "IRP6"} · tax year ${irp6.tax_year ?? "—"}`),
@@ -574,8 +563,6 @@ function taxPanel(acc) {
   p.append(el("div", { class: "kvrow" },
     el("span", { class: "k" }, "Annualised"),
     el("span", { class: "v" }, fmtR(irp6.annualised_rand))));
-  p.append(el("div", { class: "hint", style: "margin-top:4px" },
-    "records live in SA for 5 years — the documents panel below is the evidence store"));
   return p;
 }
 
@@ -588,8 +575,15 @@ const DOC_STATUS_TONE = {
 
 function docsPanelEl(acc) {
   const status = statusLine();
-  const p = panelEl("Documents & evidence", {
-    soft: "— upload → Gemini reads → you post",
+  const docs = acc.documents || [];
+  const awaiting = docs.filter((d) => d.status === "extracted").length;
+  const p = panelEl("Documents", {
+    right: el("span", {
+      title: "uploads drain to the local canonical store within seconds " +
+             "(SARS: records live in SA) · Gemini reads them · nothing " +
+             "posts without a click",
+    }, awaiting ? el("span", { class: "st warn" }, `${awaiting} awaiting your post`)
+                : "upload → read → you post"),
   });
   p.dataset.focus = "documents";
 
@@ -600,9 +594,9 @@ function docsPanelEl(acc) {
       const resp = await fetch(`${LIVE_BASE}/api/docs`,
         { headers: liveHeaders(), cache: "no-store" });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const docs = (await resp.json()).docs || [];
-      transit.textContent = docs.length
-        ? `in transit, awaiting drain: ${docs.map((d) => d.name).join(", ")}`
+      const list = (await resp.json()).docs || [];
+      transit.textContent = list.length
+        ? `in transit, awaiting drain: ${list.map((d) => d.name).join(", ")}`
         : "";
     } catch (e) { transit.textContent = ""; }
   }
@@ -663,17 +657,13 @@ function docsPanelEl(acc) {
   },
     el("div", { class: "ic" }, "⇪"),
     el("div", { style: "flex:1" },
-      el("div", { style: "font-size:12.5px;font-weight:600" },
+      el("div", { style: "font-size:13px;font-weight:600" },
         "Drop files or ", el("span", { style: "color:var(--acc)" }, "browse")),
       el("div", { class: "hint" },
-        "PDF/JPG/PNG/WEBP/CSV up to 25 MB — supplier invoices, SAD 500 / " +
-        "clearance, courier invoices, bank statements (Capitec/Shyft " +
-        "exports become reconciliation lines)")),
+        "supplier invoices, customs clearance, courier invoices, bank " +
+        "statements · PDF/JPG/PNG/WEBP/CSV up to 25 MB")),
     input);
-  p.append(drop, transit,
-    el("div", { class: "hint", style: "margin-top:6px" },
-      "uploads drain to the local canonical store within seconds (SARS: " +
-      "records live in SA) · nothing posts without a click"));
+  p.append(drop, transit);
 
   function decide(id, action) {
     busAct(`${action} document`, (doc) => {
@@ -686,7 +676,6 @@ function docsPanelEl(acc) {
     }, status, `${action} sent — applied within ~30s ('serve' must be up).`);
   }
 
-  const docs = acc.documents || [];
   const cards = el("div", { style: "margin-top:12px" });
   for (const d of docs) {
     const tone = DOC_STATUS_TONE[d.status] || "mute";
@@ -708,7 +697,7 @@ function docsPanelEl(acc) {
         d.confidence != null
           ? el("span", { class: "hint" }, `conf ${Math.round(d.confidence * 100)}%`)
           : (d.drained_at ? el("span", { class: "hint" }, fmtDate(d.drained_at)) : null)),
-      el("div", { style: "font-size:12px;color:var(--ink2);margin-top:4px" },
+      el("div", { style: "font-size:12.5px;color:var(--ink2);margin-top:4px" },
         read, suggested ? el("span", {}, " · suggests ", el("b", {}, suggested)) : null),
       ["extracted", "extract_failed", "new"].includes(d.status)
         ? el("div", { style: "display:flex;gap:8px;margin-top:8px" },
@@ -719,7 +708,7 @@ function docsPanelEl(acc) {
         : null));
   }
   if (!docs.length) {
-    cards.append(emptyLine("no documents drained yet"));
+    cards.append(emptyLine("No documents yet — drop the first invoice above."));
   }
   p.append(cards, status);
   return p;

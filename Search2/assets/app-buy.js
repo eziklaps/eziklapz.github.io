@@ -6,9 +6,9 @@
    Row cells here are shared with the Today desk's "best of" table. */
 
 const FLAG_LABELS = {
-  "rank-appeared": "🆕 first rank — sales started",
-  "first-offer": "🥇 first offer",
-  "offers-gone": "🕳 competitor out",
+  "rank-appeared": "first rank — sales started",
+  "first-offer": "first offer",
+  "offers-gone": "competitor out",
 };
 
 /* proposed first: an auto-reorder waiting on a human decision outranks
@@ -25,8 +25,17 @@ function renderBuyDesk(root) {
   // Pre-restart payloads carry no buy_ready field — filtering on those
   // would hide every row, so the filter only arms once the field exists.
   const filterable = products.some((p) => "buy_ready" in p);
-  const shown = (list) => (filterable && !S.buyShowAll)
+  const readyOnly = (list) => (filterable && !S.buyShowAll)
     ? list.filter((p) => p.buy_ready) : list;
+  // "New products" = not on Takealot under our account yet (no offer,
+  // no probe, no listing in flight — services/winners.listed_doc_ids).
+  // A product listed FRESH gets Takealot's new-offer replenishment
+  // allowance (usually 5 units a DC for its first 30 days), so its stock
+  // can go to the DC the day it lands; an old stockless probe sits at
+  // limit 0. Same pre-restart guard as buy_ready.
+  const newable = products.some((p) => "takealot_listed" in p);
+  const shown = (list) => (newable && S.buyNewOnly)
+    ? readyOnly(list).filter((p) => !p.takealot_listed) : readyOnly(list);
   const amazon = products.filter((p) => (p.channel || "amazon") === "amazon");
   const takealot = products.filter((p) => p.channel === "takealot");
   const ordered = products.filter((p) => p.order);
@@ -37,22 +46,24 @@ function renderBuyDesk(root) {
     ? S.buyer.reorders : null;
   const reorderDue = (reorders || []).filter((r) => r.status === "order_now");
   const hidden = filterable
-    ? (amazon.length - shown(amazon).length)
-      + (takealot.length - shown(takealot).length)
+    ? (amazon.length - readyOnly(amazon).length)
+      + (takealot.length - readyOnly(takealot).length)
     : 0;
   // Committed on the bus, not yet in any payload — optimistic rows so a
   // fresh ORDER shows up here immediately instead of after the next sync.
   const phantoms = busOrderPhantoms();
 
-  const kwBits = ["amazon", "takealot"].filter((m) => kw[m])
-    .map((m) => `${m} ${kw[m].pending ?? 0}`).join(" / ");
-  root.append(deskHead("Buy",
-    `${products.length} winners · intake pending: ${kwBits || "—"} · margins ` +
-    "include SARS duties, import VAT & channel fees" +
-    (filterable
-      ? ` · net deducts ~${fmtR(bf.inbound_unit_cost ?? 10)}/unit inbound courier`
-      : "") +
-    " · updated " + fmtAgo((S.buyer || {}).generated_at)));
+  const kwBits = ["amazon", "takealot"].filter((m) => kw[m] && kw[m].pending > 0)
+    .map((m) => `${m} ${fmtNum(kw[m].pending)}`).join(" / ");
+  root.append(deskHead("Buy", [
+    { text: `${fmtNum(products.length)} winners`,
+      title: "margins include SARS duties, import VAT & channel fees" +
+        (filterable
+          ? ` · net deducts ~${fmtR(bf.inbound_unit_cost ?? 10)}/unit inbound courier`
+          : "") },
+    kwBits ? { text: `intake pending · ${kwBits}`, plain: true } : null,
+    { text: "updated", ago: (S.buyer || {}).generated_at, plain: true },
+  ]));
 
   /* tabs + search + sort */
   const tab = (id, label) => el("button", {
@@ -82,14 +93,23 @@ function renderBuyDesk(root) {
            "no restriction / GTIN-exemption / compliance block",
     onclick: () => { S.buyShowAll = !S.buyShowAll; renderDesk(); },
   }, S.buyShowAll
-    ? "✓ showing all — tap for buy-ready only"
-    : `${hidden} hidden (blocked or < ${fmtR(bf.net_floor ?? 10)} net)`) : null;
+    ? "showing all · tap for buy-ready only"
+    : `${fmtNum(hidden)} hidden`) : null;
+  const newChip = newable ? el("button", {
+    class: `tab${S.buyNewOnly ? " active" : ""}`,
+    title: "only products not yet on Takealot under our account — no " +
+           "offer, no probe, no listing in flight. Listed fresh, an offer " +
+           "gets Takealot's new-offer replenishment allowance (usually 5 " +
+           "units a DC for its first 30 days), so stock can go to the DC " +
+           "the day it lands; an old stockless probe sits at limit 0.",
+    onclick: () => { S.buyNewOnly = !S.buyNewOnly; renderDesk(); },
+  }, "New products") : null;
   root.append(el("div", { class: "tabs" },
     tab("amazon", `Amazon (${shown(amazon).length})`),
     tab("takealot", `Takealot (${shown(takealot).length})`),
     reorders ? tab("reorder", `Reorder (${reorderDue.length})`) : null,
     tab("ordered", `Ordered (${ordered.length + phantoms.length})`),
-    filterChip,
+    filterChip, newChip,
     el("div", { style: "flex:1" }),
     search, sort));
 
@@ -138,6 +158,9 @@ function renderBuyDesk(root) {
       listWrap.append(el("div", { class: "empty", style: "padding:14px" },
         S.buyTab === "ordered"
           ? "Nothing ordered yet — every row has an Order button."
+          : baseLen > 0 && newable && S.buyNewOnly
+          ? `All ${baseLen} winners here already carry a Takealot offer ` +
+            "of ours — turn off New products to see them."
           : baseLen > 0
           ? `All ${baseLen} winners here are hidden — blocked or under the ` +
             "net floor. The chip above shows them."
@@ -148,7 +171,7 @@ function renderBuyDesk(root) {
       listWrap.append(orderedTable(list, sel, phantoms));
       listWrap.append(el("div", { class: "hint", style: "padding:8px 10px" },
         "payment is deliberately manual — AliExpress “Pay all” on My Orders, " +
-        "Alibaba via the 💳 link on the card · " +
+        "Alibaba via the link on the card · " +
         "rejected/failed intents free the Order button with the reason on display"));
     } else {
       listWrap.append(masterTable(list, sel));
@@ -174,7 +197,7 @@ function renderBuyDesk(root) {
       },
         el("td", {}, thumbEl(p)),
         el("td", { class: "t" },
-          el("div", { class: "rowtitle" }, p.title),
+          el("div", { class: "rowtitle" }, cleanTitle(p)),
           el("div", { class: "rowsub" }, buySubline(p))),
         el("td", {}, scoreTag(p)),
         el("td", {}, marginCell(p)),
@@ -202,9 +225,9 @@ function renderBuyDesk(root) {
       const p = byAsin[o.asin] || {};
       table.append(el("tr", {},
         el("td", { class: "t" },
-          el("div", { class: "rowtitle" }, p.title || o.asin),
+          el("div", { class: "rowtitle" }, cleanTitle(p) || o.asin),
           el("div", { class: "rowsub" }, o.id)),
-        el("td", { class: "t" }, el("span", { class: "st warn" }, "🕐 on the bus")),
+        el("td", { class: "t" }, el("span", { class: "st warn" }, "on the bus")),
         el("td", {}, fmtNum(o.quantity || 1)),
         el("td", {}, "—"),
         el("td", { class: "t" }, fmtAgo(o.requested_at)),
@@ -220,14 +243,14 @@ function renderBuyDesk(root) {
       if (o.state === "proposed") {
         note = proposalActions(o);
       } else if (o.state === "placed" && latest) {
-        note = el("span", {}, `🚚 ${latest.name || "update"} · ${fmtAgo(latest.at)}`
+        note = el("span", {}, `${latest.name || "update"} · ${fmtAgo(latest.at)}`
           + (o.tracking.eta_at ? ` · ETA ${fmtDate(o.tracking.eta_at)}` : ""));
       } else if (o.state === "placed" && o.payment_state !== "paid") {
         note = o.supplier === "alibaba"
           ? (o.payment_url
               ? el("a", { class: "st warn", href: o.payment_url,
                           target: "_blank", rel: "noopener" },
-                  "💳 pay on Alibaba ↗")
+                  "pay on Alibaba ↗")
               : el("span", { class: "st warn" }, "pay link pending"))
           : el("span", { class: "st warn" }, "pay on AliExpress");
       } else {
@@ -239,10 +262,10 @@ function renderBuyDesk(root) {
         onclick: () => { S.buySel = p.asin; renderList(); },
       },
         el("td", { class: "t" },
-          el("div", { class: "rowtitle" }, p.title),
+          el("div", { class: "rowtitle" }, cleanTitle(p)),
           el("div", { class: "rowsub" },
             `${o.id}${o.ae_order_ids?.length ? ` · AE ${o.ae_order_ids.join(", ")}` : ""}` +
-            (o.tracking?.mail_no ? ` · 🏷 ${o.tracking.mail_no}` : "") +
+            (o.tracking?.mail_no ? ` · waybill ${o.tracking.mail_no}` : "") +
             (o.payment_state === "paid" ? " · paid" : ""))),
         el("td", { class: "t" }, stateWord(o.state, ORDER_STATE_LABEL, ORDER_STATE_TONE)),
         el("td", {}, (o.quantity ?? joined.quantity) != null
@@ -273,7 +296,7 @@ function renderBuyDesk(root) {
     } else {
       listWrap.append(reorderTable(list, sel));
       listWrap.append(el("div", { class: "hint", style: "padding:8px 10px" },
-        "sorted by runway — this list is the order queue · ⚡ fast freight " +
+        "sorted by runway — this list is the order queue · fast freight " +
         "is suggested only when a PROVEN seller (own sales) would stock " +
         "out before cheap freight lands · greyed rows are already " +
         "preordered"));
@@ -301,9 +324,9 @@ function renderBuyDesk(root) {
       },
         el("td", {}, thumbEl(r)),
         el("td", { class: "t" },
-          el("div", { class: "rowtitle" }, r.title),
+          el("div", { class: "rowtitle" }, cleanTitle(r)),
           el("div", { class: "rowsub" },
-            (r.channel === "takealot" ? "🛒 Takealot · " : "") + r.asin +
+            (r.channel === "takealot" ? "Takealot · " : "") + r.asin +
             (r.manual ? ` · wholesale (${r.supplier || "supplier"})` : ""))),
         el("td", { class: "t", style: "font-size:12px" }, reorderStockCell(r)),
         el("td", { class: "t" }, reorderSellsCell(r)),
@@ -321,8 +344,8 @@ function renderBuyDesk(root) {
 
 function buySubline(p) {
   const bits = [];
-  if (p.channel === "takealot") bits.push("🛒 Takealot find");
-  if (p.score_category === "sole_seller_candidate") bits.push("🥇 sole-seller candidate");
+  if (p.channel === "takealot") bits.push("Takealot find");
+  if (p.score_category === "sole_seller_candidate") bits.push("sole-seller candidate");
   for (const flag of (p.trend_flags || "").split(" | ").filter(Boolean)) {
     bits.push(FLAG_LABELS[flag] || flag);
   }
@@ -330,7 +353,7 @@ function buySubline(p) {
   if (o?.state === "placed") {
     const latest = o.tracking?.events?.[0];
     bits.push(latest ? `ordered · ${latest.name || "in transit"} ${fmtAgo(latest.at)}` : "ordered");
-  } else if (o?.state === "received") bits.push("📥 in stock");
+  } else if (o?.state === "received") bits.push("in stock");
   if (p.listing?.state === "live") bits.push("● live on Amazon");
   else if (p.listing && !PARKED.has(p.listing.state)) bits.push("◐ listing queued");
   if (p.takealot?.state === "live") bits.push("● live on Takealot");
@@ -454,7 +477,7 @@ function buyRowAction(p, orderOpts) {
   if (busOrderPhantomForAsin(p.asin)) {
     return el("span", { class: "st warn",
       title: "order committed — the pipeline picks it up within ~30s" },
-      "🕐 on the bus");
+      "on the bus");
   }
   const again = o && (o.state === "received" || o.state === "rejected"
     || o.state === "failed" || o.state === "cancelled");
@@ -483,13 +506,13 @@ function proposalActions(o) {
       class: "b sm pri",
       title: o.note || "auto-reorder proposal — approving queues the normal " +
              "verify → place path (margin floor, affordability gate, caps)",
-      onclick: claim("approve proposal", { approve: true }, "🕐 approval sent"),
+      onclick: claim("approve proposal", { approve: true }, "approval sent"),
     }, "Approve"),
     el("button", {
       class: "b sm",
       title: "dismisses this proposal — the ASIN won't be re-proposed for " +
              "the cooldown window",
-      onclick: claim("dismiss proposal", { cancel: true }, "🕐 dismissal sent"),
+      onclick: claim("dismiss proposal", { cancel: true }, "dismissal sent"),
     }, "Dismiss"));
   return wrap;
 }
@@ -528,7 +551,7 @@ function autoReorderSwitch() {
       }, null, "");
       // Same one-press guard as proposalActions: the button dies the
       // moment a flip is committed; the payload echo re-arms it.
-      btn.replaceWith(el("span", { class: "st warn" }, "🕐 applying"));
+      btn.replaceWith(el("span", { class: "st warn" }, "applying"));
     },
   }, on ? "Switch off" : "Switch on…");
   return el("div", {
@@ -537,11 +560,11 @@ function autoReorderSwitch() {
   },
     // Mode-aware label once the payload carries the Phase 5 dial; the
     // old ON/OFF words for payloads that predate it.
-    el("b", {}, `🤖 Auto-reorder ${cfg.mode ? cfg.mode.toUpperCase()
+    el("b", {}, `Auto-reorder ${cfg.mode ? cfg.mode.toUpperCase()
                                             : on ? "ON" : "OFF"}`),
     pending ? el("span", { class: "st warn",
       title: "the flip is on the command bus — the pipeline applies it " +
-             "within ~30s while a run or serve is active" }, "🕐 applying")
+             "within ~30s while a run or serve is active" }, "applying")
       : null,
     el("span", { class: "hint", style: "flex:1;min-width:200px" },
       cfg.mode === "auto"
@@ -609,7 +632,7 @@ function reorderSuggestCell(r) {
              `${fmtR(m.baseline_per_unit)}/u at the baseline ` +
              `${m.baseline_qty} units — save ${m.saving_percent ?? 0}%/u · ` +
              `cash out ${fmtR(m.cash_out)} · ~${Math.round(m.cover_days ?? 0)}d cover` },
-      "🏭 Alibaba tier"), " ");
+      "Alibaba tier"), " ");
   }
   if (m && m.blocked_step) {
     cell.append(el("span", { class: "st warn",
@@ -630,10 +653,10 @@ function reorderSuggestCell(r) {
     ? el("span", { class: "st hot",
         title: `cheap freight would land ≈${r.gap_days_if_cheap}d after ` +
                "stockout — proven demand justifies paying for speed" },
-        "⚡ fast freight")
+        "fast freight")
     : el("span", { class: "st",
         title: "cheap freight lands before the stockout deadline" },
-        "🐢 cheap freight"));
+        "cheap freight"));
   if (r.freight_tier === "cheap" && r.gap_days_if_cheap) {
     // Caught short WITHOUT proven demand: cheap stays the rule, but the
     // expected stockout gap is stated instead of silently eaten.
@@ -646,7 +669,7 @@ function reorderSuggestCell(r) {
 }
 
 function reorderAction(r, p) {
-  if (r.status === "covered") return el("span", { class: "st" }, "🚚 on the road");
+  if (r.status === "covered") return el("span", { class: "st" }, "on the road");
   if (r.manual) {
     return el("span", { class: "st",
       title: "wholesale/manual stock — no AliExpress intent to reorder through" },
@@ -671,7 +694,7 @@ function reorderAction(r, p) {
    — stock context only, no margin trail to show. */
 function reorderDetail(r) {
   const card = el("div", { class: "panel" });
-  card.append(el("h3", {}, r.title));
+  card.append(el("h3", {}, cleanTitle(r)));
   card.append(el("div", { class: "chiprow" },
     reorderRunwayCell(r), reorderSellsCell(r),
     r.live ? el("span", { class: "st ok" }, "● live") : null));
@@ -706,7 +729,7 @@ function matchSection(p) {
              "border:1px solid var(--line);flex:none",
     }));
   }
-  const name = p.ali_title || `Ali ${p.ali_id}`;
+  const name = cleanTitle(p.ali_title) || `Ali ${p.ali_id}`;
   const info = el("div", { style: "min-width:0;flex:1" },
     el("div", { style: "font-size:12.5px;line-height:1.4" },
       p.aliexpress_url
@@ -728,7 +751,7 @@ function matchSection(p) {
   if (busMatchRejectFor(p.asin)) {
     sect.append(el("div", { class: "st warn",
       style: "margin-top:8px;white-space:normal" },
-      "🕐 wrong-match sent — re-matches without this supplier next run"));
+      "wrong-match sent — re-matches without this supplier next run"));
     return sect;
   }
   const status = statusLine();
@@ -754,7 +777,7 @@ function matchSection(p) {
 function buyDetail(p) {
   const card = el("div", { class: "panel" });
   card.append(heroEl(p));
-  card.append(el("h3", {}, p.title));
+  card.append(el("h3", {}, cleanTitle(p)));
 
   const bf = (S.buyer || {}).buy_filter || {};
   const chips = el("div", { class: "chiprow" },
@@ -767,11 +790,11 @@ function buyDetail(p) {
       : pill("ok", `${fmtR(p.margin_total)} · ${p.margin_percent ?? "—"}%`),
     p.opportunity_score != null
       ? el("span", { class: "pill acc", title: scoreTooltipText(p) },
-          `⚡ ${Math.round(p.opportunity_score)}`) : null);
+          `${Math.round(p.opportunity_score)}`) : null);
   const BLOCK_LABEL = {
-    restricted: "🔒 Amazon approval needed",
-    compliance: "⛔ ZA compliance (ICASA/NRCS)",
-    gtin_exemption: "🔒 GTIN exemption needed",
+    restricted: "Amazon approval needed",
+    compliance: "ZA compliance (ICASA/NRCS)",
+    gtin_exemption: "GTIN exemption needed",
   };
   for (const b of p.listing_blocks || []) {
     chips.append(el("span", {
@@ -789,7 +812,7 @@ function buyDetail(p) {
   for (const flag of (p.trend_flags || "").split(" | ").filter(Boolean)) {
     chips.append(el("span", { class: "tag" }, FLAG_LABELS[flag] || flag));
   }
-  if (p.channel === "takealot") chips.append(el("span", { class: "tag" }, "🛒 Takealot find"));
+  if (p.channel === "takealot") chips.append(el("span", { class: "tag" }, "Takealot find"));
   if (p.score_category === "sole_seller_candidate") {
     chips.append(el("span", { class: "tag" }, "sole-seller candidate"));
   }
@@ -806,6 +829,14 @@ function buyDetail(p) {
       title: p.takealot.note || "",
       onclick: () => setDesk("sell", { sellTab: "takealot", focus: p.asin }),
     }, `Takealot offer: ${INTENT_LABEL[p.takealot.state] || p.takealot.state} →`));
+  }
+  if (p.takealot_listed === false) {
+    chips.append(el("span", {
+      class: "tag",
+      title: "no offer of ours on this product yet — listed fresh it gets " +
+             "Takealot's new-offer replenishment allowance (usually 5 units " +
+             "a DC for its first 30 days), so stock can go to the DC on arrival",
+    }, "new to Takealot"));
   }
   card.append(chips);
 
@@ -862,7 +893,7 @@ function buyDetail(p) {
       sect.append(el("a", {
         class: "b pri", style: "margin-top:8px;display:inline-block",
         href: o.payment_url, target: "_blank", rel: "noopener",
-      }, "💳 Pay on Alibaba ↗"));
+      }, "Pay on Alibaba ↗"));
       sect.append(el("div", { class: "hint", style: "margin-top:4px" },
         "opens Alibaba's card/PayPal cashier — the pipeline confirms " +
         "payment by poll afterwards"));
@@ -975,7 +1006,7 @@ function buyDetail(p) {
   if (!o || ["received", "rejected", "failed", "cancelled"].includes(o.state)) {
     if (busOrderPhantomForAsin(p.asin)) {
       card.append(el("div", { class: "note warn", style: "margin-top:12px" },
-        el("b", {}, "🕐 Order committed. "),
+        el("b", {}, "Order committed. "),
         "It's on the command bus — the pipeline verifies and places it " +
         "within ~30s while a run or serve is active."));
     } else {
@@ -1174,7 +1205,7 @@ function orderGateWarn() {
   const gate = (((S.admin || {}).banking) || {}).gate || {};
   if (gate.status === "red") {
     return el("span", {},
-      el("b", {}, "⛔ Affordability gate RED — placement holds. "),
+      el("b", {}, "Affordability gate RED — placement holds. "),
       `${(gate.reasons || []).join(" · ") || "no cash evidence"}. ` +
       "The intent still queues and verifies, but nothing places until the " +
       "gate reopens — a fresh statement or balance confirm on Books does it.");
@@ -1235,7 +1266,7 @@ function openOrderModal(p, opts = {}) {
 
   typedCommitModal({
     title: "Order from AliExpress",
-    product: p.title,
+    product: cleanTitle(p),
     lines: [`item ${p.ali_id} · SKU ${p.sku_id} · ~${fmtR(unitCost)}/unit · ` +
             (p.net_margin != null ? `net ${fmtR(p.net_margin)} / ` : "") +
             `margin ${fmtR(p.margin_total)} (${p.margin_percent ?? "—"}%) at ` +
@@ -1310,7 +1341,7 @@ function openAlibabaOrderModal(p) {
   if (!ab || !ab.product_id) return;
   typedCommitModal({
     title: "Order from Alibaba",
-    product: p.title,
+    product: cleanTitle(p),
     lines: [
       `Alibaba item ${ab.product_id}` +
         (ab.supplier ? ` · ${ab.supplier}` : "") +
@@ -1328,7 +1359,7 @@ function openAlibabaOrderModal(p) {
     spendFor: (qty) => alibabaSpendBox(ab, p, qty),
     note: "The pipeline re-verifies MOQ, the quantity's ladder-tier " +
       "price, fresh ZA freight and the margin floor before placing — " +
-      "then a 💳 Pay on Alibaba link appears on this card. Payment is " +
+      "then a Pay on Alibaba link appears on this card. Payment is " +
       "YOUR click on Alibaba's card/PayPal cashier; nothing charges " +
       "silently.",
     entryFor: (qty) => ({
@@ -1340,7 +1371,7 @@ function openAlibabaOrderModal(p) {
       requested_at: new Date().toISOString(),
     }),
     doneText: "The pipeline re-verifies and places the BuyNow order — " +
-      "within ~30s while a run or serve is active. The 💳 payment link " +
+      "within ~30s while a run or serve is active. The payment link " +
       "lands on this card once placed.",
   });
 }
@@ -1381,7 +1412,7 @@ function markReceivedModal(p, o) {
         }), `Dashboard: mark ${o.id} received`);
         status.textContent = "";
         btn.replaceWith(el("div", { class: "note ok", style: "margin-top:14px" },
-          el("b", {}, "✅ Receipt committed. "),
+          el("b", {}, "Receipt committed. "),
           partial
             ? "The tranche books into inventory and the intent stays open " +
               "for the remaining boxes — the final delivery uses a plain " +
@@ -1435,7 +1466,7 @@ function markCancelledModal(p, o) {
         }), `Dashboard: mark ${o.id} cancelled`);
         status.textContent = "";
         btn.replaceWith(el("div", { class: "note ok", style: "margin-top:14px" },
-          el("b", {}, "✅ Claim committed. "),
+          el("b", {}, "Claim committed. "),
           "The intent flips to cancelled when the pipeline next syncs."));
       } catch (e) {
         status.textContent = `Failed: ${e.message}`;

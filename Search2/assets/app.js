@@ -21,6 +21,8 @@ const DESKS = [
 // the only thing that stops a claim's clock; nothing local touches it.
 const ATOZ_CLAIMS_URL =
   "https://sellercentral.amazon.co.za/gp/guarantee-claims/homepage.html";
+// Placement ≠ payment: orders are paid by hand on AliExpress' My Orders.
+const ALI_ORDERS_URL = "https://www.aliexpress.com/p/order/index.html";
 
 const S = {
   desk: (location.hash || "").replace("#", "") || "today",
@@ -29,10 +31,12 @@ const S = {
   passphrase: null,
   // per-desk UI state survives re-renders
   buyTab: "amazon", buySearch: "", buySort: "score", buySel: null,
-  buyShowAll: false,
+  buyShowAll: false, buyNewOnly: false,
   sellTab: "amazon",
   sellTodosOpen: false,
-  stockOpen: false,
+  stockOpen: false, stockMovesAll: false,
+  machineDetail: false,
+  booksReconAll: false, booksLedgerAll: false,
   // connection honesty: failing = last refresh sweep lost every fetch;
   // wsUp = live-push socket state (null until it first connects/is off)
   net: { failing: false, lastOkAt: null, wsUp: null },
@@ -95,10 +99,58 @@ function panelEl(title, opts = {}, ...children) {
   return el("section", { class: "panel" }, head, ...children);
 }
 
-function deskHead(title, metaText) {
-  return el("div", { class: "deskhead" },
-    el("h1", {}, title),
-    el("div", { class: "meta" }, metaText || ""));
+/* Desk title + the facts beside it: a plain string renders as muted meta
+   text, an array renders as stamps (below), a node is used as-is. */
+function deskHead(title, meta) {
+  const right = meta instanceof Node ? meta
+    : Array.isArray(meta) ? stampsEl(meta)
+    : el("div", { class: "meta" }, meta || "");
+  return el("div", { class: "deskhead" }, el("h1", {}, title), right);
+}
+
+/* Stamps: one small fact each. A spec is a string, a node, or
+   { text, tone, title, ago, node, plain } — `ago` appends a live
+   "x ago" span, `plain` drops the border (dates, "updated"). Falsy
+   entries are skipped so callers can inline conditions. */
+function stampsEl(specs) {
+  const row = el("div", { class: "stamps" });
+  for (const s of specs) {
+    if (!s) continue;
+    if (s instanceof Node) { row.append(s); continue; }
+    const spec = typeof s === "string" ? { text: s } : s;
+    const node = el("span", {
+      class: `stamp${spec.tone ? ` ${spec.tone}` : ""}${spec.plain ? " plain" : ""}`,
+      ...(spec.title ? { title: spec.title } : {}),
+    });
+    if (spec.tone) node.append(dotEl(spec.tone, true));
+    if (spec.text) node.append(spec.text);
+    if (spec.ago) node.append(spec.text ? " " : "", agoSpan(spec.ago));
+    if (spec.node) node.append(" ", spec.node);
+    row.append(node);
+  }
+  return row;
+}
+
+/* Amazon ZA page titles arrive as "Brand: X Product: Y" for ~40% of the
+   catalog; the brand rides inside Y anyway, so the desks show Y. Takes a
+   product doc or a string. */
+const TITLE_PREFIX_RE = /^\s*(?:Brand:\s*.*?\s*)?Product:\s*/i;
+function cleanTitle(p) {
+  const raw = (p && typeof p === "object" ? p.title : p) || "";
+  const m = raw.match(TITLE_PREFIX_RE);
+  if (!m) return raw;
+  return raw.slice(m[0].length).trim() || raw;
+}
+
+/* Journal/push messages carry URLs and emoji meant for Telegram; the
+   desk shows the words. */
+function tidyMessage(text) {
+  return String(text || "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/(\s*·\s*)+$/, "")
+    .trim();
 }
 
 function statusLine() {
@@ -181,13 +233,13 @@ function thumbEl(p, lg) {
 /* ---------- shared intent-state vocabulary ---------- */
 
 const INTENT_LABEL = {
-  proposed: "🤖 proposed — approve?",
+  proposed: "proposed — approve?",
   pending: "queued", ready: "payload ready", validated: "validated",
-  submitting: "submitting…", submitted: "submitted", live: "🟢 live",
+  submitting: "submitting…", submitted: "submitted", live: "live",
   loadsheet: "on the loadsheet", offer_ready: "priced — offer queued",
   blocked_exemption: "blocked: GTIN exemption", fix_required: "needs a fix",
   needs_review: "needs review", rejected: "rejected",
-  bus: "🕐 on the bus",
+  bus: "on the bus",
 };
 const INTENT_TONE = {
   proposed: "warn",
@@ -206,10 +258,10 @@ function stateWord(state, labels = INTENT_LABEL, tones = INTENT_TONE) {
 }
 
 const ORDER_STATE_LABEL = {
-  proposed: "🤖 proposed — approve?", pending: "⏳ awaiting verification",
-  verified: "✅ verified", placing: "🛒 placing…", placed: "📦 placed",
-  received: "📥 received", needs_review: "🚨 needs review",
-  rejected: "↩ rejected", failed: "✗ failed", cancelled: "🚫 cancelled",
+  proposed: "proposed — approve?", pending: "awaiting verification",
+  verified: "verified", placing: "placing…", placed: "placed",
+  received: "received", needs_review: "needs review",
+  rejected: "rejected", failed: "failed", cancelled: "cancelled",
 };
 const ORDER_STATE_TONE = {
   proposed: "warn", pending: "mute", verified: "ok", placing: "warn",
@@ -280,7 +332,7 @@ function busAct(label, mutate, statusEl, doneText) {
       await mutateCommands(mutate, `Dashboard: ${label}`);
       if (statusEl) {
         statusEl.textContent = doneText
-          || `✅ ${label} sent — the pipeline applies commands within ~30s ` +
+          || `${label} sent — the pipeline applies commands within ~30s ` +
              "while a run or serve is active.";
       }
       readCommandsSafe().catch(() => {});
@@ -301,9 +353,9 @@ function prunePush(doc, key, entry, days = 7) {
 /* Every bus write in the app funnels through mutateCommands (common.js) —
    wrap it once so a successful commit immediately becomes visible state:
    the returned doc replaces S.commands (no extra read) and the app repaints
-   a beat later, turning "✅ sent" into a queued row on the Recent-commands
+   a beat later, turning "sent" into a queued row on the Recent-commands
    panel and phantom rows on the desks instead of 60s of silence. The delay
-   leaves the ✅ note readable before the repaint clears it. */
+   leaves the note readable before the repaint clears it. */
 const _mutateCommandsRaw = mutateCommands;
 mutateCommands = async (mutate, message) => {
   const doc = await _mutateCommandsRaw(mutate, message);
@@ -362,7 +414,7 @@ function typedCommitModal(spec) {
           `Dashboard: ${spec.title}`);
         status.textContent = "";
         commitBtn.replaceWith(el("div", { class: "note ok", style: "margin-top:12px" },
-          el("b", {}, "✅ Intent committed. "), spec.doneText));
+          el("b", {}, "Intent committed. "), spec.doneText));
       } catch (e) {
         status.textContent = `Failed: ${e.message}`;
         if (/401|403/.test(e.message)) localStorage.removeItem(PAT_KEY);
@@ -600,7 +652,28 @@ function needsYouItems() {
   const items = [];
   const a = S.admin || {};
 
+  // Logistics flags stack up per parcel (ETA breach + protection window +
+  // no movement for one order) — fold them into ONE row per order: worst
+  // severity leads, earliest deadline binds, every message stays in the
+  // subline. Everything else stays one row per signal.
+  const LOGISTICS = new Set(["eta_breach", "protection_window", "no_movement"]);
+  const SEV = { critical: 0, serious: 1, warning: 2 };
+  const byOrder = new Map();
+  const singles = [];
   for (const it of a.attention || []) {
+    const key = LOGISTICS.has(it.kind) ? (it.intent_id || it.asin) : null;
+    if (!key) { singles.push(it); continue; }
+    if (!byOrder.has(key)) byOrder.set(key, []);
+    byOrder.get(key).push(it);
+  }
+  const folded = [...byOrder.values()].map((flags) => {
+    flags.sort((x, y) => (SEV[x.severity] ?? 3) - (SEV[y.severity] ?? 3));
+    const due = flags.map((f) => f.act_by).filter(Boolean).sort()[0] || null;
+    return { ...flags[0], act_by: due, _flags: flags };
+  });
+  const byAsin = buyerByAsin();
+
+  for (const it of [...folded, ...singles]) {
     const order = (it.ae_order_ids || [])[0];
     const tone = { critical: "bad", serious: "hot", warning: "warn" }[it.severity] || "warn";
     let action = null;
@@ -646,10 +719,15 @@ function needsYouItems() {
         href: `https://sellercentral.amazon.co.za/orders-v3/order/${it.order_id}`,
       }, "Open order ↗");
     }
+    const name = it.asin && byAsin[it.asin] ? cleanTitle(byAsin[it.asin]) : "";
+    const flags = it._flags || [it];
     items.push({
       tone,
-      title: `${(it.kind || "?").replace(/_/g, " ")}` + (it.asin ? ` — ${it.asin}` : ""),
-      sub: it.message,
+      title: it._flags && name
+        ? (name.length > 72 ? `${name.slice(0, 70)}…` : name)
+        : `${(it.kind || "?").replace(/_/g, " ")}` + (it.asin ? ` — ${it.asin}` : ""),
+      sub: (it._flags && name ? `${it.asin} · ` : "")
+        + flags.map((f) => f.message).filter(Boolean).join(" · "),
       dueIso: it.act_by, action,
     });
   }
@@ -810,7 +888,7 @@ function proposalQueueItems() {
     if (p.order?.state !== "proposed") continue;
     items.push({
       kind: "reorder",
-      title: p.title || p.asin,
+      title: cleanTitle(p) || p.asin,
       sub: p.order.note || "auto-reorder proposal",
       figure: p.order.quantity ? `${p.order.quantity} units` : null,
       action: () => proposalActions(p.order),
@@ -826,7 +904,7 @@ function proposalQueueItems() {
       const wide = it.source === "wide_listing";
       items.push({
         kind: wide ? "wide listing" : "Takealot twin",
-        title: it.title || it.asin || it.id,
+        title: cleanTitle(it.title) || it.asin || it.id,
         sub: it.note || (wide
           ? "a brand-new Amazon page for a no-counterpart Ali winner"
           : "stock from an Amazon order can also sell on Takealot"),
@@ -856,12 +934,12 @@ function listingProposalActions(it, channel) {
       class: "b sm pri",
       title: "approving hands it to the normal prepare → validate → " +
              "submit machinery (exemption/compliance gates still bind)",
-      onclick: claim("approve proposal", { approve: true }, "🕐 approval sent"),
+      onclick: claim("approve proposal", { approve: true }, "approval sent"),
     }, "Approve"),
     el("button", {
       class: "b sm",
       title: "dismisses this proposal for good — it is never re-proposed",
-      onclick: claim("dismiss proposal", { cancel: true }, "🕐 dismissal sent"),
+      onclick: claim("dismiss proposal", { cancel: true }, "dismissal sent"),
     }, "Dismiss"));
   return wrap;
 }
@@ -904,10 +982,10 @@ function renderTopbar() {
           class: "b sm danger", onclick: () =>
             busAct("stop run", (doc) => { (doc.run ??= {}).desired = "stopped"; },
                    status, "Stop sent — the run winds down within ~30s."),
-        }, "■ Stop run")
+        }, "Stop run")
       : el("button", {
           class: "b sm line", onclick: () => setDesk("machine"),
-        }, "▶ Start on Machine"),
+        }, "Start on Machine"),
     el("div", { style: "flex:1" }),
     el("div", { class: "pubdot" },
       dotEl(agoMinutes(a.generated_at) <= 20 ? "ok" : "warn", true),
@@ -942,9 +1020,11 @@ function railBadges() {
     + (((a.orders || {}).outstanding || {}).count || 0)
     + ((((a.banking || {}).recon) || {}).unmatched_total || 0)
     + ((((a.banking || {}).gate) || {}).status === "red" ? 1 : 0);
+  // Buy's winner count is a fact, not a to-do — it lives on the desk head,
+  // not on the rail (a 4-digit badge beside the alert counts read as one).
   return {
     today: { n: needs, cls: needs ? "alert" : "" },
-    buy: { n: winners, cls: "" },
+    buy: { n: 0, cls: "" },
     stock: { n: stock, cls: stock ? "warn" : "" },
     sell: { n: sellCount, cls: "" },
     machine: { n: machine, cls: machine ? "warn" : "" },
@@ -967,7 +1047,7 @@ function renderRail() {
     }),
     el("div", { style: "flex:1" }),
     el("div", { class: "railfoot" },
-      "Decrypted locally in your browser · auto-refreshes every 60s",
+      "Decrypted in your browser · refreshes every 60s",
       el("br", {}),
       el("a", { onclick: lockDesk }, "Lock the desk")));
 }
@@ -1152,11 +1232,13 @@ function renderConnBar() {
 function wsChip() {
   const up = S.net.wsUp;
   const tone = up === true ? "ok" : up === false ? "warn" : "mute";
-  const label = up === true ? "live push connected"
-    : up === false ? "live push reconnecting — 60s polling covers"
+  const label = up === true ? "live push"
+    : up === false ? "live push reconnecting"
     : "live push off";
-  const chip = pill(tone, dotEl(tone, true), ` ${label}`);
-  chip.id = "wschip";
+  const chip = el("span", {
+    class: `stamp ${tone}`, id: "wschip",
+    title: up === false ? "60s polling covers until the socket returns" : "",
+  }, dotEl(tone, true), label);
   return chip;
 }
 

@@ -1,12 +1,11 @@
-/* Today desk — the morning triage: KPIs, the Needs-you queue, a machine
-   mini-panel, data freshness, the kill switches and the top of the Buy
-   desk. Everything renders from the three payloads already in S. */
+/* Today desk — the morning check. Four figures that move money, the
+   Needs-you queue (one row per parcel / claim / gate), what the machine
+   proposes, the machine's pulse, the kill switches and the top of the
+   Buy desk. Everything renders from the three payloads already in S. */
 
 function renderTodayDesk(root) {
   const a = S.admin || {};
   const products = (S.buyer || {}).products || [];
-  const counts = a.status_counts || {};
-  const scanned = Object.values(counts).reduce((x, y) => x + y, 0);
   const orders = a.orders || {};
   const oc = orders.counts || {};
   const inFlight = (oc.pending || 0) + (oc.verified || 0)
@@ -15,50 +14,75 @@ function renderTodayDesk(root) {
   const acc = a.accounting || {};
   const pnl = acc.pnl || [];
   const month = pnl[pnl.length - 1] || {};
-  const supplies = acc.supplies_12mo || {};
-  const vatPct = Math.round((supplies.fraction || 0) * 100);
+  const gate = (a.banking || {}).gate || {};
   const lanes = a.lanes || {};
   const busy = Object.values(lanes).filter((l) => l.state === "running").length;
-
+  const running = a.funnel_state === "running";
   const now = new Date();
-  root.append(deskHead("Today",
-    `${now.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short" })}` +
-    (a.run_id ? ` · run ${a.run_id}` : "") +
-    (Object.keys(lanes).length ? ` · ${busy} of ${Object.keys(lanes).length} lanes busy` : "") +
-    ` · funnel ${a.funnel_state || "?"}`));
 
-  /* ----- KPI strip ----- */
+  root.append(deskHead("Today", [
+    { text: now.toLocaleDateString("en-ZA",
+        { weekday: "long", day: "numeric", month: "long" }), plain: true },
+    running
+      ? { text: `run active · ${busy}/${Object.keys(lanes).length} lanes busy`,
+          tone: "ok", title: a.run_id ? `run ${a.run_id}` : "" }
+      : { text: `no run · ${a.funnel_state || "idle"}`,
+          title: a.run_id ? `last run ${a.run_id}` : "" },
+    { text: "published", ago: a.generated_at,
+      tone: agoMinutes(a.generated_at) <= 20 ? "ok" : "warn" },
+  ]));
+
+  /* ----- the four figures ----- */
+  const stock = typeof stockModel === "function" ? stockModel() : null;
+  const sellable = stock ? stock.rows.filter((r) => r.live)
+    .reduce((s, r) => s + Math.max(r.available, 0), 0) : null;
+  const onHand = stock ? stock.rows.reduce((s, r) => s + r.onHand, 0) : null;
+  const road = stock ? stock.transit.reduce((s, r) => s + r.remaining, 0) : 0;
+  const gateTone = { green: "ok", amber: "warn", red: "bad" }[gate.status] || "mute";
+  const inFlightBits = ["placed", "placing", "verified", "pending"]
+    .filter((s) => oc[s]).map((s) => `${oc[s]} ${s}`).join(" · ");
+
   root.append(el("div", { class: "kpis" },
-    kpi("Winners", fmtNum(products.length),
-      `${fmtNum(scanned)} scanned`),
-    kpi("Orders in flight", fmtNum(inFlight),
-      ["placed", "placing", "verified", "pending"]
-        .filter((s) => oc[s]).map((s) => `${oc[s]} ${s}`).join(" · ") || "none"),
-    kpi("Awaiting payment", out.count ? fmtR(out.total_rand) : "R 0",
-      el("span", {}, `${out.count || 0} order${out.count === 1 ? "" : "s"} · `,
-        el("a", {
-          href: "https://www.aliexpress.com/p/order/index.html",
-          target: "_blank", rel: "noopener",
-        }, "pay on AliExpress ↗"))),
+    kpi("Cash", gate.cash_zar != null ? fmtR(gate.cash_zar) : "—",
+      gate.status
+        ? el("span", {},
+            el("span", { class: `st ${gateTone}`, title: (gate.watch || []).concat(gate.reasons || []).join(" · ") },
+              `gate ${gate.status}`),
+            (gate.verified_age_days ?? gate.age_days) != null
+              ? ((gate.verified_age_days ?? gate.age_days) === 0
+                  ? " · bank seen today"
+                  : ` · bank seen ${gate.verified_age_days ?? gate.age_days}d ago`) : "")
+        : el("a", { onclick: () => setDesk("books") }, "no balance evidence yet →")),
     kpi(`Net · ${month.month || "this month"}`,
-      el("span", { class: month.net >= 0 ? "v ok" : "v hot" }, fmtR(month.net ?? 0)),
-      month.estimate_rand ? `${fmtR(month.estimate_rand)} rests on estimates` : "actuals only"),
-    el("div", { class: "kpi" },
-      el("div", { class: "l" }, "VAT threshold"),
-      el("div", { class: "v" }, `${vatPct}%`),
-      el("div", { class: "gauge", style: "margin-top:7px" },
-        el("span", { style: `width:${Math.min(100, vatPct)}%` }))),
+      el("span", { class: (month.net ?? 0) >= 0 ? "v ok" : "v hot" }, fmtR(month.net ?? 0)),
+      `${fmtR((month.revenue || {}).total || 0)} sales`
+        + (month.estimate_rand ? ` · ${fmtR(month.estimate_rand)} estimated` : "")),
+    kpi("Orders in flight", fmtNum(inFlight),
+      out.count
+        ? el("span", {}, `${fmtR(out.total_rand)} unpaid · `,
+            el("a", { href: ALI_ORDERS_URL, target: "_blank", rel: "noopener" },
+              "pay on AliExpress ↗"))
+        : (inFlightBits || "nothing placed")),
+    kpi("Sellable stock",
+      sellable != null
+        ? el("span", {}, fmtNum(sellable),
+            el("span", { class: "unit" }, `of ${fmtNum(onHand)} on hand`))
+        : "—",
+      road ? `${fmtNum(road)} units on the road` : "nothing inbound"),
   ));
 
   /* ----- needs you + right column ----- */
   const items = needsYouItems();
   const needsPanel = panelEl("Needs you", {
-    right: `${items.length} item${items.length === 1 ? "" : "s"} · sorted by deadline`,
+    right: items.length
+      ? `${items.length} item${items.length === 1 ? "" : "s"} · earliest deadline first`
+      : "",
   });
   if (!items.length) {
     needsPanel.append(emptyLine("Nothing needs you — the machine is doing the rest."));
   }
   for (const it of items) {
+    const tone = dueTone(it.dueIso);
     needsPanel.append(el("div", { class: "needrow" },
       dotEl(it.tone),
       el("div", {},
@@ -66,8 +90,9 @@ function renderTodayDesk(root) {
         el("div", { class: "ns" }, it.sub || "")),
       el("div", { class: "due" },
         el("div", { class: "d1", style: it.dueIso
-          ? `color:var(--${dueTone(it.dueIso) === "bad" ? "bad" : dueTone(it.dueIso) === "warn" ? "warn-text" : "ink"})` : "color:var(--muted)" },
-          it.dueIso ? fmtIn(it.dueIso) : (it.dueLabel && !it.dueIso ? "—" : "—")),
+          ? `color:var(--${tone === "bad" ? "bad" : tone === "warn" ? "warn-text" : "ink"})`
+          : "color:var(--muted)" },
+          it.dueIso ? fmtIn(it.dueIso) : "—"),
         el("div", { class: "d2" },
           it.dueIso ? fmtDate(it.dueIso) : (it.dueLabel || ""))),
       el("div", { class: "act" }, it.action || el("span", {})),
@@ -79,7 +104,6 @@ function renderTodayDesk(root) {
     el("div", { style: "display:flex;flex-direction:column;gap:16px" },
       recentCommandsPanel(a),
       machineMini(a),
-      freshDataPanel(a),
       killSwitchPanel()),
   ));
 
@@ -87,9 +111,10 @@ function renderTodayDesk(root) {
   const proposals = proposalQueueItems();
   if (proposals.length) {
     const pq = panelEl("The machine proposes", {
-      soft: "— nothing here spends or lists without your press " +
-            "(or a dial set to AUTO on Machine)",
-      right: `${proposals.length} proposal${proposals.length === 1 ? "" : "s"}`,
+      right: el("span", {
+        title: "nothing here spends or lists without your press, unless the " +
+               "matching dial on Machine is set to AUTO",
+      }, `${proposals.length} proposal${proposals.length === 1 ? "" : "s"} · your press decides`),
     });
     const table = el("table", { class: "grid" },
       el("tr", {},
@@ -101,7 +126,7 @@ function renderTodayDesk(root) {
         el("td", { class: "t" },
           el("div", { class: "rowtitle" }, pr.title),
           el("div", { class: "rowsub" }, pr.sub || "")),
-        el("td", {}, pr.figure || "—"),
+        el("td", { style: "white-space:nowrap" }, pr.figure || "—"),
         el("td", { class: "r" }, pr.action()),
         el("td", { class: "r" }, el("button", {
           class: "b xs line", onclick: pr.open,
@@ -114,8 +139,8 @@ function renderTodayDesk(root) {
   /* ----- best on the Buy desk ----- */
   const top = products.slice(0, 3);
   const best = panelEl("Best on the Buy desk", {
-    right: el("a", { onclick: () => setDesk("buy"), style: "cursor:pointer" },
-      `all ${products.length} winners →`),
+    right: el("a", { onclick: () => setDesk("buy") },
+      `all ${fmtNum(products.length)} winners →`),
   });
   if (!top.length) {
     best.append(emptyLine("No winners yet — the pipeline is still hunting."));
@@ -123,19 +148,16 @@ function renderTodayDesk(root) {
     const table = el("table", { class: "grid" },
       el("tr", {},
         el("th", {}, ""), el("th", {}, "Product"), el("th", {}, "Score"),
-        el("th", {}, "Margin"), el("th", {}, "Demand"),
-        el("th", {}, "Price / Ali"), el("th", {}, "Selling"), el("th", {}, "")));
+        el("th", {}, "Margin"), el("th", {}, "Demand"), el("th", {}, "")));
     for (const p of top) {
       table.append(el("tr", {},
         el("td", {}, thumbEl(p, true)),
         el("td", { class: "t" },
-          el("div", { class: "rowtitle" }, p.title),
+          el("div", { class: "rowtitle" }, cleanTitle(p)),
           el("div", { class: "rowsub" }, buySubline(p))),
         el("td", {}, scoreTag(p)),
         el("td", {}, marginCell(p)),
         el("td", { class: "t" }, demandCell(p)),
-        el("td", {}, priceCell(p)),
-        el("td", { class: "t" }, sellingChip(p) || "—"),
         el("td", { class: "r" }, buyRowAction(p))));
     }
     best.append(el("div", { class: "scroll-x" }, table));
@@ -151,7 +173,7 @@ function kpi(label, value, sub) {
 }
 
 /* Recent commands: every dashboard click, from "on the bus" to "applied"
-   (or FAILED) — the answer to the app going quiet after "✅ sent". Waiting
+   (or FAILED) — the answer to the app going quiet after "sent". Waiting
    entries come from the bus doc (token-gated read); applied/failed rows are
    the pipeline's own journal riding the admin payload. */
 function recentCommandsPanel(a) {
@@ -176,8 +198,7 @@ function recentCommandsPanel(a) {
   const rows = [
     ...pending.map((e) => ({
       tone: e.seen ? "mute" : "warn",
-      icon: e.seen ? "·" : "⏳",
-      text: e.label + (e.seen ? " — no change recorded (already applied?)" : ""),
+      text: e.label + (e.seen ? " — no change recorded" : ""),
       at: e.stamp, kind: e.kind,
       title: e.seen
         ? "the pipeline read the bus after this entry but journalled no change — " +
@@ -187,40 +208,39 @@ function recentCommandsPanel(a) {
     })),
     ...journal.map((r) => ({
       tone: r.ok ? "ok" : "bad",
-      icon: r.ok ? "✓" : "✗",
-      text: r.message, at: r.at, kind: r.kind, title: "",
+      text: tidyMessage(r.message), at: r.at, kind: r.kind, title: "",
     })),
   ];
 
   if (!rows.length) {
     p.append(emptyLine(S.commands
-      ? "no commands yet — actions you take land here with their outcome"
-      : "applied commands land here — take any action to unlock the " +
-        "waiting-queue view too"));
+      ? "No commands yet — actions you take land here with their outcome."
+      : "Applied commands land here — take any action to see the waiting queue too."));
     return p;
   }
-  const CAP = 10;
+  const CAP = 6;
   for (const r of rows.slice(0, CAP)) {
     p.append(el("div", { class: "cmdrow", title: r.title },
       dotEl(r.tone, true),
       el("div", { class: "ns",
                   style: r.tone === "bad" ? "color:var(--bad)" : "" },
-        `${r.icon} ${r.text}`),
+        r.text),
       el("div", { class: "when" },
         el("span", { class: "k" }, r.kind),
         agoSpan(r.at))));
   }
   if (rows.length > CAP) {
-    p.append(el("div", { class: "hint", style: "padding:4px 0 0" },
-      `…${rows.length - CAP} more in the 30-day journal`));
+    p.append(el("div", { class: "hint", style: "padding:6px 0 0" },
+      `${rows.length - CAP} more in the 30-day journal`));
   }
   return p;
 }
 
-/* Machine mini-panel: lane dots + the top of the backlog. */
+/* Machine mini-panel: lane dots, the top of the backlog, the sweep and
+   the account's health — the pulse, not the controls. */
 function machineMini(a) {
   const p = panelEl("Machine", {
-    right: el("a", { onclick: () => setDesk("machine"), style: "cursor:pointer" }, "open →"),
+    right: el("a", { onclick: () => setDesk("machine") }, "open →"),
   });
   const lanes = a.lanes || {};
   if (Object.keys(lanes).length) {
@@ -231,72 +251,70 @@ function machineMini(a) {
       grid.append(el("div", { class: "mrow" },
         dotEl(tone, true), name,
         el("span", { class: "mr" },
-          lane.cycles != null ? `${fmtNum(lane.cycles)}c` : lane.state)));
+          lane.state === "running" && lane.cycles != null
+            ? `${fmtNum(lane.cycles)}c` : lane.state)));
     }
     p.append(grid);
-  } else {
-    p.append(emptyLine("no live run — lane states appear while one is active"));
   }
   const depths = Object.entries(a.feed_depths || {})
     .sort((x, y) => y[1] - x[1]);
+  const total = depths.reduce((s, [, n]) => s + n, 0);
+  const rows = el("div", {
+    style: Object.keys(lanes).length
+      ? "margin-top:10px;padding-top:8px;border-top:1px solid var(--line-soft)" : "",
+  });
+  rows.append(el("div", { class: "kvrow" },
+    el("span", { class: "k" }, "Backlog"),
+    el("span", { class: "v" }, total
+      ? `${fmtNum(total)} docs` + (a.work_eta_seconds > 0 ? ` · ~${fmtDur(a.work_eta_seconds)}` : "")
+      : "drained")));
   if (depths.length) {
-    const total = depths.reduce((s, [, n]) => s + n, 0);
     const max = depths[0][1];
-    const bars = el("div", { class: "bars sm", style: "margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft)" },
-      el("div", { class: "kvrow" },
-        el("span", { class: "k" }, `Backlog · ${fmtNum(total)} docs`),
-        el("span", { class: "v" }, a.work_eta_seconds > 0
-          ? `paced ~${fmtDur(a.work_eta_seconds)}` : "")));
-    for (const [stage, count] of depths.slice(0, 4)) {
+    const bars = el("div", { class: "bars sm" });
+    for (const [stage, count] of depths.slice(0, 3)) {
       bars.append(el("div", { class: "brow" },
         el("span", {}, stage),
         el("div", { class: "track" },
           el("div", { class: "fill", style: `width:${Math.max(4, (count / max) * 100)}%` })),
         el("span", { class: "n" }, fmtNum(count))));
     }
-    p.append(bars);
+    rows.append(bars);
   }
-  return p;
-}
-
-function freshDataPanel(a) {
-  const p = panelEl("Fresh data", {});
   const sweep = a.sweep || {};
-  p.append(el("div", { class: "kvrow" },
+  rows.append(el("div", { class: "kvrow" },
     el("span", { class: "k" }, "Snapshot sweep"),
-    el("span", { class: "v" }, sweep.last_completed_at
-      ? el("span", {}, agoSpan(sweep.last_completed_at),
-          sweep.asins ? ` · ${fmtNum(sweep.asins)} ASINs` : "")
-      : "never")));
-  p.append(el("div", { class: "kvrow" },
-    el("span", { class: "k" }, "Next sweep"),
-    el("span", { class: "v" }, sweep.running ? "running now" : fmtIn(sweep.next_due_at))));
-  const ev = a.takealot_events || {};
-  p.append(el("div", { class: "kvrow" },
-    el("span", { class: "k" }, "Takealot webhooks"),
-    el("span", { class: "v" }, `${fmtNum(ev.total || 0)} total` +
-      ((ev.recent || []).length && ev.recent.every((e) => e.verified) ? " · verified" : ""))));
+    el("span", { class: "v" }, sweep.running
+      ? el("span", { class: "st warn" }, "running now")
+      : sweep.last_completed_at
+        ? el("span", {}, agoSpan(sweep.last_completed_at), ` · next ${fmtIn(sweep.next_due_at)}`)
+        : "never")));
   const ah = a.account_health || {};
   const claims = (ah.claims || {}).count;
   const fine = ah.ahr_status &&
     ["GREAT", "GOOD", "NORMAL", "HEALTHY"].includes(String(ah.ahr_status).toUpperCase());
-  p.append(el("div", { class: "kvrow" },
-    el("span", { class: "k" }, "Account health"),
+  rows.append(el("div", { class: "kvrow" },
+    el("span", { class: "k" }, "Amazon account health"),
     el("span", { class: `v st ${fine ? "ok" : ah.ahr_status ? "bad" : "mute"}` },
       ah.ahr_status
-        ? `AHR ${ah.ahr_status}${claims != null ? ` · ${claims} claims open` : ""}`
+        ? `${ah.ahr_status}${claims ? ` · ${claims} claim${claims === 1 ? "" : "s"} open` : ""}`
         : "no report yet")));
   const bm = a.buyer_messages || {};
   if (bm.configured === false) {
-    p.append(el("div", { class: "kvrow" },
+    rows.append(el("div", { class: "kvrow" },
       el("span", { class: "k" }, "Mailbox watch"),
-      el("span", { class: "v st warn" }, "OFF — needs the Gmail app password")));
+      el("span", { class: "v st warn" }, "off — needs the Gmail app password")));
   }
+  p.append(rows);
   return p;
 }
 
 function killSwitchPanel() {
-  const p = panelEl("Kill switches", {});
+  const p = panelEl("Kill switches", {
+    right: el("span", {
+      title: "remote half only — the .env master switch on the pipeline " +
+             "machine must also be on; killing is always instant",
+    }, "instant"),
+  });
   const status = statusLine();
   for (const s of switchStates()) {
     // SELL is one row for two bus keys (Amazon listings + Takealot offers)
@@ -327,9 +345,6 @@ function killSwitchPanel() {
                 `${label} enabled remotely — still needs the .env switch on the pipeline machine.`),
             }, "Arm"))));
   }
-  p.append(el("div", { class: "hint", style: "margin-top:6px" },
-    "Remote half only — the .env master switch on the pipeline machine must " +
-    "also be on. Killing is always instant."),
-    status);
+  p.append(status);
   return p;
 }

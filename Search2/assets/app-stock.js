@@ -75,7 +75,7 @@ function stockModel() {
   const committed = stock.committed || {};
   for (const r of Object.values(rows)) {
     const p = r.product;
-    r.title = r.title || (p && p.title) || r.asin;
+    r.title = cleanTitle(r.title || (p && p.title)) || r.asin;
     /* Movement locations are the truth; the offer mirror only counts when
        no takealot units are tracked yet (offers carry no stock today). */
     const locUnits = Object.values(r.locs).reduce((s, n) => s + n, 0);
@@ -198,7 +198,7 @@ function offerModeModal(r, m) {
               requested_at: new Date().toISOString(),
             }, 2);
           }, status,
-            "✅ Sent — applies on the next serve pass (~30s while 'serve' " +
+            "Sent — applies on the next serve pass (~30s while 'serve' " +
             "is up) and the offer updates on Takealot right after. The " +
             "mode then re-pins itself each sales pass as home stock " +
             "changes.");
@@ -430,7 +430,7 @@ function moveStockModal(r) {
             const bucket = (doc.stock ??= {});
             prunePush(bucket, "moves", entry, 2);
           }, status,
-            "✅ Sent — the movement (or the reason it was rejected) shows " +
+            "Sent — the movement (or the reason it was rejected) shows " +
             "in the log within ~30s while 'serve' is up.");
         },
       }, "Commit"),
@@ -588,7 +588,7 @@ function receiveStockModal(m) {
             const bucket = (doc.stock ??= {});
             prunePush(bucket, "receipts", entry, 2);
           }, status,
-            "✅ Sent — inventory, Books rows and the movement land within " +
+            "Sent — inventory, Books rows and the movement land within " +
             "~30s while 'serve' is up; a new SKU appears here on the next " +
             "publish.");
         },
@@ -623,31 +623,33 @@ function renderStockDesk(root) {
   const restock = m.rows.filter((r) => r.group === "restock");
   const alerts = restock.length + m.account_low.length;
 
-  root.append(deskHead("Stock",
-    `${skus} stocked SKU${skus === 1 ? "" : "s"} of ${((S.buyer || {}).products || []).length} winners · ` +
-    "priority-sorted: what needs you floats to the top · landed-cost " +
-    "estimates until actuals post"));
-
   const bases = new Set(m.rows.filter((r) => r.value > 0)
     .map((r) => r.basis).filter(Boolean));
   const basisWord = bases.size === 1 && bases.has("actual") ? "actuals"
     : bases.has("actual") || bases.has("mixed") ? "part actuals" : "estimate";
+  root.append(deskHead("Stock", [
+    { text: `${skus} stocked SKU${skus === 1 ? "" : "s"}`,
+      title: "priority-sorted: what needs you floats to the top" },
+    { text: `${fmtR(m.totals.value_rand || 0)} landed · ${basisWord}`,
+      title: "landed-cost estimates until actuals post", plain: true },
+    { text: "updated", ago: (S.admin || {}).generated_at, plain: true },
+  ]));
   root.append(el("div", { class: "kpis" },
     kpi("On hand", el("span", {}, fmtNum(units), " ",
-      el("span", { style: "font-size:14px;color:var(--ink2);font-weight:600" }, "units")),
-      `${skus} SKUs · ${fmtR(m.totals.value_rand || 0)} landed (${basisWord})`),
+      el("span", { class: "unit" }, "units")),
+      `${skus} SKU${skus === 1 ? "" : "s"}`),
     kpi("On the road", el("span", {}, fmtNum(roadUnits), " ",
-      el("span", { style: "font-size:14px;color:var(--ink2);font-weight:600" }, "inbound")),
+      el("span", { class: "unit" }, "inbound")),
       `${fmtR(roadValue)} committed · ${m.transit.length} shipment${m.transit.length === 1 ? "" : "s"}`),
     kpi("Sellable now", el("span", {}, fmtNum(sellable), " ",
-      el("span", { style: "font-size:14px;color:var(--ink2);font-weight:600" }, `of ${fmtNum(units)}`)),
-      [committedUnits ? `${committedUnits} committed — open orders, DC debt, returns` : null,
-       idleUnits ? `${idleUnits} units idle across ${idleSkus} SKU${idleSkus === 1 ? "" : "s"} — no live listing` : null,
+      el("span", { class: "unit" }, `of ${fmtNum(units)}`)),
+      [committedUnits ? `${committedUnits} committed` : null,
+       idleUnits ? `${idleUnits} idle · no live listing` : null,
       ].filter(Boolean).join(" · ") || "everything on hand is listed"),
     kpi("Restock alerts",
       el("span", { class: alerts ? "v hot" : "" }, fmtNum(alerts)),
-      alerts ? "below the reorder point — shortest runway floats to the top"
-        : `nothing below the reorder point (${LEAD_TIME_DAYS}d lead + safety, net of inbound)`),
+      alerts ? "below the reorder point — shortest runway first"
+        : "nothing below the reorder point"),
   ));
 
   /* ----- flow board ----- */
@@ -657,21 +659,21 @@ function renderStockDesk(root) {
   });
   const roadCell = el("div", { class: "flowcell" },
     el("div", { class: "fh" },
-      el("div", { class: "ft" }, "🛣 On the road"),
+      el("div", { class: "ft" }, "On the road"),
       el("div", { class: "fn" }, `${fmtNum(roadUnits)} u · ${fmtR(roadValue)}`)),
     el("div", { class: "fs" },
       `${m.transit.length} shipment${m.transit.length === 1 ? "" : "s"} inbound from AliExpress`));
   for (const t of m.transit.slice(0, 3)) {
     roadCell.append(el("div", { class: "flowrow" },
       el("span", { style: "font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis" },
-        `${t.title || t.asin || t.intent_id} ×${t.remaining}`),
+        `${cleanTitle(t.title) || t.asin || t.intent_id} ×${t.remaining}`),
       t.stalled
         ? el("span", { class: "st bad" }, `⚠ stalled ${Math.round((Date.now() - new Date(t.last_movement_at)) / 864e5)}d`)
         : el("span", { style: "color:var(--ink2);white-space:nowrap" },
             t.eta_at ? `ETA ${fmtDate(t.eta_at)}` : (t.state || "in transit"))));
     /* the waybill is what's printed on the box — the match key in hand */
     const bits = [];
-    if ((t.tracking_refs || []).length) bits.push(`🏷 ${t.tracking_refs.join(" · ")}`);
+    if ((t.tracking_refs || []).length) bits.push(`waybill ${t.tracking_refs.join(" · ")}`);
     if (t.received_units) bits.push(`${t.received_units} of ${t.quantity} already in`);
     if (bits.length) {
       roadCell.append(el("div", {
@@ -689,7 +691,7 @@ function renderStockDesk(root) {
   const homeSkus = m.rows.filter((r) => r.home > 0);
   const homeCell = el("div", { class: "flowcell acc" },
     el("div", { class: "fh" },
-      el("div", { class: "ft" }, "🏠 Home warehouse"),
+      el("div", { class: "ft" }, "Home warehouse"),
       el("div", { class: "fn" },
         `${fmtNum(homeSkus.reduce((s, r) => s + r.home, 0))} u · ${fmtR(homeSkus.reduce((s, r) => s + r.value, 0))}`)),
     el("div", { class: "fs" }, `${homeSkus.length} SKU${homeSkus.length === 1 ? "" : "s"} · ships MFN orders + feeds the channels`));
@@ -715,7 +717,7 @@ function renderStockDesk(root) {
   const channelCol = el("div", { style: "flex:1.05;display:flex;flex-direction:column;gap:8px;min-width:0" },
     el("div", { class: "flowcell", style: "flex:none" },
       el("div", { class: "fh" },
-        el("div", { class: "ft" }, "🛒 Takealot"),
+        el("div", { class: "ft" }, "Takealot"),
         el("div", { class: "fn" }, tkRows.length
           ? `${(m.account.counts || {}).buyable || 0} buyable of ${m.account.total || tkRows.length}`
           : "no offers")),
@@ -723,12 +725,12 @@ function renderStockDesk(root) {
         ? el("div", { class: "flowrow" },
             el("span", { style: "font-weight:600" },
               `owes the DC ${dcOwedTotal} unit${dcOwedTotal === 1 ? "" : "s"}`),
-            el("span", { class: "st bad" }, `🚚 ${slaBadge(slaDays(m))}`))
+            el("span", { class: "st bad" }, slaBadge(slaDays(m))))
         : null,
       m.account_low.length
         ? el("div", { class: "flowrow" },
             el("span", { style: "font-weight:600" }, m.account_low[0].title || m.account_low[0].sku),
-            el("span", { class: "st bad" }, `🔴 ${m.account_low[0].stock} left`))
+            el("span", { class: "st bad" }, `${m.account_low[0].stock} left`))
         : null,
       holidayRowEl(m),
       el("div", { class: "fs", style: "margin:4px 0 0" },
@@ -737,7 +739,7 @@ function renderStockDesk(root) {
           : "")),
     el("div", { class: "flowcell", style: "flex:none" },
       el("div", { class: "fh" },
-        el("div", { class: "ft" }, "📦 Amazon FBA"),
+        el("div", { class: "ft" }, "Amazon FBA"),
         el("div", { class: "fn" }, m.fbaSyncedAt
           ? (fbaUnits ? `${fmtNum(fbaUnits)} u · ${fbaRows.length} SKU${fbaRows.length === 1 ? "" : "s"}` : "empty")
           : "not tracked yet")),
@@ -758,9 +760,11 @@ function renderStockDesk(root) {
 
   /* ----- per-SKU table ----- */
   const tablePanel = panelEl("Stock by product", {
-    right: el("span", {},
-      "cover = available (on hand − committed) ÷ daily velocity · " +
-      `reorder when position < ${LEAD_TIME_DAYS + SAFETY_STOCK_DAYS}d · `,
+    right: el("span", {
+      title: "cover = available (on hand − committed) ÷ daily velocity · " +
+        `reorder when position < ${LEAD_TIME_DAYS + SAFETY_STOCK_DAYS}d · ` +
+        "counts update from sales polls, Mark received and the movements log",
+    },
       el("a", { onclick: () => findParcelModal(m), style: "cursor:pointer" },
         "Find parcel…"),
       " · ",
@@ -814,30 +818,27 @@ function renderStockDesk(root) {
     }
     tablePanel.append(wrap);
   }
-  tablePanel.append(el("div", { class: "hint", style: "margin-top:8px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap" },
-    el("span", {}, `${fmtNum(units)} units on hand · ${fmtR(m.totals.value_rand || 0)} landed (${basisWord})`),
-    el("span", {}, "counts update from sales polls, Mark received and the " +
-      "movements below — Move… re-homes or writes off units")));
   root.append(tablePanel);
 
   /* ----- movements log ----- */
   const movesPanel = panelEl("Movements", {
-    right: "append-only — every unit in, out or re-homed",
+    right: el("span", { title: "every unit in, out or re-homed — Move… re-homes or writes off units" },
+      "append-only"),
   });
   if (!m.movements.length) {
     movesPanel.append(emptyLine(
       "No movements yet — the first “Mark received” writes the first row."));
   } else {
-    const KIND = { received: ["📥", "Received"], sold: ["🛍", "Sold"],
-                   moved: ["🔀", "Moved"], write_off: ["🗑", "Write-off"],
-                   returned: ["↩️", "Returned"], adjust: ["🧮", "Adjusted"] };
+    const KIND = { received: "Received", sold: "Sold", moved: "Moved",
+                   write_off: "Write-off", returned: "Returned", adjust: "Adjusted" };
+    const CAP = 8;
     const t = el("table", { class: "grid" },
       el("tr", {},
         el("th", {}, "When"), el("th", {}, "What"),
         el("th", { class: "r" }, "Qty"), el("th", {}, "Route"),
         el("th", {}, "Note")));
-    for (const mv of m.movements) {
-      const [icon, label] = KIND[mv.kind] || ["•", mv.kind || "?"];
+    for (const mv of (S.stockMovesAll ? m.movements : m.movements.slice(0, CAP))) {
+      const label = KIND[mv.kind] || mv.kind || "?";
       const route = mv.kind === "received" ? `→ ${mv.to || "home"}`
         : mv.kind === "sold" ? `${mv.from || "?"} → sold`
         : mv.kind === "write_off" ? `${mv.from || "?"} → ✕`
@@ -848,7 +849,7 @@ function renderStockDesk(root) {
         el("td", { style: "white-space:nowrap;color:var(--ink2)" }, fmtDate(mv.at)),
         el("td", { class: "t" },
           el("div", { class: "rowtitle" },
-            `${icon} ${label} — ${mv.title || mv.asin || "?"}`),
+            `${label} — ${cleanTitle(mv.title) || mv.asin || "?"}`),
           mv.applied === false
             ? el("div", { class: "rowsub" },
                 el("span", { class: "st bad" }, `rejected — ${mv.error || "?"}`))
@@ -861,6 +862,12 @@ function renderStockDesk(root) {
           mv.source || "")));
     }
     movesPanel.append(el("div", { class: "scroll-x" }, t));
+    if (m.movements.length > CAP) {
+      movesPanel.append(el("div", { class: "disclose", style: "margin-top:8px" },
+        el("a", {
+          onclick: () => { S.stockMovesAll = !S.stockMovesAll; renderDesk(); },
+        }, S.stockMovesAll ? "Show the newest 8 ▴" : `Show all ${m.movements.length} ▾`)));
+    }
   }
   root.append(movesPanel);
 
@@ -1022,7 +1029,7 @@ function maxSendableInput(r, status) {
           asin: r.asin, value, requested_at: new Date().toISOString(),
         }, 2);
       }, status,
-        "✅ Saved — the advisor and the booking clamp pick it up on the " +
+        "Saved — the advisor and the booking clamp pick it up on the " +
         "next publish (~30s while 'serve' is up).");
     }),
   }, "Save");
@@ -1345,7 +1352,7 @@ function renderCourierPanel(root, m) {
           fmtDate(s.booked_at || s.created_at)),
         el("td", { class: "t" },
           el("div", { class: "rowtitle" },
-            `${s.quote_only ? "💬 quote" : s.carrier === "external" ? "🚛 TFS/ext" : "🚚"} ${s.dest_label || s.dest} — ${what}`),
+            `${s.quote_only ? "Quote · " : s.carrier === "external" ? "TFS/external · " : ""}${s.dest_label || s.dest} — ${what}`),
           sub.length ? el("div", { class: "rowsub" }, sub.join(" · ")) : null,
           stepsLine),
         el("td", {}, chip),
@@ -1411,7 +1418,7 @@ function bookCourierModal(m, prefill) {
     const destNote = el("div", { class: "hint" });
     const syncNote = () => {
       const d = dests.find((x) => x.key === destSel.value);
-      destNote.textContent = (d && d.note) ? `ℹ ${d.note}` : "";
+      destNote.textContent = (d && d.note) ? d.note : "";
     };
     destSel.addEventListener("change", syncNote);
     syncNote();
@@ -1521,7 +1528,7 @@ function bookCourierModal(m, prefill) {
       }
       for (const it of over) bits.push(`⚠ ${it.asin}: only ${(stocked.find((x) => x.asin === it.asin) || { locs: {} }).locs.home} at home`);
       for (const it of clampBreaches(items, channel)) {
-        bits.push(`⛔ ${it.asin}: portal max sendable is ${it.max} — the DC bounces the overage`);
+        bits.push(`${it.asin}: portal max sendable is ${it.max} — the DC bounces the overage`);
       }
       manifestNote.textContent = bits.join(" · ");
 
@@ -1609,7 +1616,7 @@ function bookCourierModal(m, prefill) {
       preflight.className = "note";
       if (!booking) {
         preflight.textContent =
-          "💬 Quotes are free — no prepaid balance needed.";
+          "Quotes are free — no prepaid balance needed.";
         return;
       }
       const est = courierEstimate(c, destSel.value, levelSel.value);
@@ -1631,7 +1638,7 @@ function bookCourierModal(m, prefill) {
       if (needed != null && needed > c.balance) {
         preflight.className = "note warn";
         preflight.replaceChildren(
-          el("b", {}, `⛔ Prepaid balance ${fmtR(c.balance)} is short: `),
+          el("b", {}, `Prepaid balance ${fmtR(c.balance)} is short: `),
           est
             ? `this lane last cost ${estText}. Top up in the TCG portal ` +
               "first — or send a free quote to check the current price."
@@ -1719,8 +1726,8 @@ function bookCourierModal(m, prefill) {
         prunePush(bucket, "requests", entry, 2);
       }, status,
         booking
-          ? "✅ Sent — the booking (or the refusal with the live price) shows in the runs list within ~30s while 'serve' is up."
-          : "✅ Sent — the quote lands in the runs list within ~30s while 'serve' is up.");
+          ? "Sent — the booking (or the refusal with the live price) shows in the runs list within ~30s while 'serve' is up."
+          : "Sent — the quote lands in the runs list within ~30s while 'serve' is up.");
     });
     openModal(
       el("h3", {}, "Courier run — home → warehouse"),
@@ -1893,7 +1900,7 @@ function externalRunModal(m) {
             const bucket = (doc.courier ??= {});
             prunePush(bucket, "requests", entry, 2);
           }, status,
-            "✅ Sent — the run shows in the list within ~30s while 'serve' " +
+            "Sent — the run shows in the list within ~30s while 'serve' " +
             "is up; Mark delivered moves the stock when it lands.");
         },
       }, "Record run"),
@@ -1970,7 +1977,7 @@ function editDestinationsModal(m) {
             if (value) entry[key] = value;
           }
           send(entry, `destination ${destSel.value}`,
-            "✅ Saved — applies within ~30s; re-open this dialog after the " +
+            "Saved — applies within ~30s; re-open this dialog after the " +
             "next publish to see it echoed back.");
         },
       }, "Save destination"),
@@ -1980,7 +1987,7 @@ function editDestinationsModal(m) {
           { key: destSel.value, reset: true,
             requested_at: new Date().toISOString() },
           `reset destination ${destSel.value}`,
-          "✅ Reset sent — the built-in/.env registry value shows through " +
+          "Reset sent — the built-in/.env registry value shows through " +
           "after the next publish."),
       }, "Reset to registry"),
       el("button", {
@@ -2015,7 +2022,7 @@ function receiveInboundModal(r, inbound) {
         el("span", { class: "meta", style: "flex:1;min-width:0" },
           (t.tracking_refs || []).length
             ? el("span", { style: "font-weight:650;color:var(--ink)" },
-                `🏷 ${t.tracking_refs.join(", ")} · `)
+                `${t.tracking_refs.join(", ")} · `)
             : null,
           `×${t.remaining}` +
           (t.received_units ? ` (${t.received_units} of ${t.quantity} in)` : "") +
@@ -2078,10 +2085,10 @@ function findParcelModal(m) {
           el("span", { class: "meta", style: "flex:1;min-width:0" },
             el("span", { style: "font-weight:650;color:var(--ink)" },
               (t.tracking_refs || []).length
-                ? `🏷 ${t.tracking_refs.join(", ")}`
-                : "🏷 no waybill yet"),
+                ? `${t.tracking_refs.join(", ")}`
+                : "no waybill yet"),
             el("br", {}),
-            `${t.title || t.asin || t.intent_id} ×${t.remaining}` +
+            `${cleanTitle(t.title) || t.asin || t.intent_id} ×${t.remaining}` +
             (t.received_units ? ` (${t.received_units} of ${t.quantity} in)` : "") +
             (t.eta_at ? ` · ETA ${fmtDate(t.eta_at)}` : "") +
             ((t.ae_order_ids || []).length ? ` · AE ${t.ae_order_ids.join(", ")}` : "")),
@@ -2100,7 +2107,7 @@ function findParcelModal(m) {
     let scanBtn = null;
     if ("BarcodeDetector" in window) {
       scanBtn = el("button", { class: "b sm line", style: "white-space:nowrap" },
-        "📷 Scan label");
+        "Scan label");
       scanBtn.addEventListener("click", () => { snap.value = ""; snap.click(); });
       snap.addEventListener("change", async () => {
         const file = snap.files && snap.files[0];
@@ -2156,7 +2163,7 @@ function stockRow(r, m) {
     ? m.transit.filter((t) => t.asin === r.asin) : [];
   let cover;
   if (r.coverDays != null) {
-    cover = r.coverDays < 1 ? el("span", { class: "st bad" }, "<1d 🔴")
+    cover = r.coverDays < 1 ? el("span", { class: "st bad" }, "<1d")
       : r.coverDays <= 7 ? el("span", { class: "st hot" }, `~${Math.round(r.coverDays)}d`)
       : el("span", { style: "color:var(--ink2)" }, `~${Math.round(r.coverDays)}d`);
   } else if (r.onHand === 0 && r.road > 0) {
@@ -2187,23 +2194,23 @@ function stockRow(r, m) {
       ? el("button", { class: "b sm pri",
           onclick: () => receiveInboundModal(r, inbound) },
           inbound.length > 1 ? `Mark received (${inbound.length})` : "Mark received")
-      : el("span", { class: "hint" }, "🚚 in transit");
+      : el("span", { class: "hint" }, "in transit");
   }
   const sub = [];
   /* Waybills of everything inbound for this SKU — the reference on the
      parcel label (ZA…R), so a box in hand matches its row at a glance. */
   const refs = inbound.flatMap((t) => t.tracking_refs || []);
-  if (refs.length) sub.push(`🏷 ${refs.join(" · ")}`);
-  if (r.manual) sub.push(`📦 manual stock${r.supplier ? ` — ${r.supplier}` : ""}`);
+  if (refs.length) sub.push(`waybill ${refs.join(" · ")}`);
+  if (r.manual) sub.push(`manual stock${r.supplier ? ` — ${r.supplier}` : ""}`);
   if (r.velocity != null) sub.push(`sells ≈${fmtNum(Math.round(r.velocity))}/mo`);
   if (r.group === "restock" && r.suggestQty) {
     sub.push(`order ≈${r.suggestQty} — position ${r.positionDays != null
       ? "~" + Math.round(r.positionDays) + "d" : "?"} vs ${LEAD_TIME_DAYS + SAFETY_STOCK_DAYS}d point`);
   }
   if (r.mfnOpen) sub.push(`${r.mfnOpen} committed to open MFN order${r.mfnOpen === 1 ? "" : "s"}`);
-  if (r.returns) sub.push(`↩️ ${r.returns} in returns — inspect, then Move home or Write off`);
+  if (r.returns) sub.push(`${r.returns} in returns — inspect, then Move home or Write off`);
   if (r.dcOwed) {
-    sub.push(`🚚 owes the DC ${r.dcOwed} unit${r.dcOwed === 1 ? "" : "s"} — leadtime sale, ${slaBadge(slaDays(m, r))}`);
+    sub.push(`owes the DC ${r.dcOwed} unit${r.dcOwed === 1 ? "" : "s"} — leadtime sale, ${slaBadge(slaDays(m, r))}`);
   }
   /* Offer-mode chip: what the Takealot offer promises from this shelf
      right now, and the live leadtime SLA (never hard-coded — Takealot
@@ -2213,17 +2220,17 @@ function stockRow(r, m) {
     const o = r.offer;
     const days = slaDays(m, r);
     if (o.mode_error) {
-      sub.push(`🛒 offer mode ⚠ ${o.mode_error}`);
+      sub.push(`offer mode ⚠ ${o.mode_error}`);
     } else if (holidayOn(m) && (o.mode === "leadtime" || o.leadtime_units)) {
-      sub.push("🛒 offer: leadtime held at 0 — holiday mode");
+      sub.push("offer: leadtime held at 0 — holiday mode");
     } else if (o.mode === "dc_only") {
-      sub.push("🛒 offer: in-stock only — home withheld");
+      sub.push("offer: in-stock only — home withheld");
     } else if (o.mode === "leadtime") {
-      sub.push(`🛒 offer: leadtime${o.mode_units != null ? ` · ${o.mode_units}u` : ""}`
+      sub.push(`offer: leadtime${o.mode_units != null ? ` · ${o.mode_units}u` : ""}`
         + (days ? ` · ships ≤${days}d` : "")
         + (o.mode_applied_at ? "" : " · pending"));
     } else if (o.leadtime_units) {
-      sub.push(`🛒 offer: leadtime · ${o.leadtime_units}u`
+      sub.push(`offer: leadtime · ${o.leadtime_units}u`
         + (days ? ` · ships ≤${days}d` : "") + " · unmanaged");
     }
   }
