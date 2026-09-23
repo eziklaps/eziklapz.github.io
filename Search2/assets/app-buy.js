@@ -465,11 +465,24 @@ function demandCell(p) {
   return span;
 }
 
+/* Supplier cost of ONE sold unit: a pack listing (a Takealot 10-pack
+   against a single-unit SKU) takes pack_multiplier SKUs per sale. */
+function aliUnitCost(p) {
+  const pack = p.pack_multiplier || 1;
+  return p.sku_price != null ? p.sku_price * pack : p.ali_price_used;
+}
+
+function packChip(p) {
+  return (p.pack_multiplier || 1) > 1
+    ? el("span", { class: "hint", title: `${p.pack_multiplier} supplier units per sale` }, ` ×${p.pack_multiplier}`)
+    : null;
+}
+
 function priceCell(p) {
   const anchor = p.channel === "takealot" ? p.takealot_price : p.amazon_price;
-  const ali = p.sku_price ?? p.ali_price_used;
+  const ali = aliUnitCost(p);
   return el("span", { class: "num", style: "font-size:12.5px" },
-    fmtR(anchor), el("span", { style: "color:var(--muted)" }, " / "), fmtR(ali));
+    fmtR(anchor), el("span", { style: "color:var(--muted)" }, " / "), fmtR(ali), packChip(p));
 }
 
 function sellingChip(p) {
@@ -1103,8 +1116,8 @@ function amazonCompareTable(p) {
   return el("table", { class: "compare" },
     el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", {}, "Amazon"), el("th", {}, "AliExpress"))),
     row("Price", fmtR(p.amazon_price),
-      el("span", {}, fmtR(p.sku_price ?? p.ali_price_used),
-        p.ali_price_source === "sku" ? el("span", { class: "hint" }, " SKU") : null)),
+      el("span", {}, fmtR(aliUnitCost(p)),
+        p.ali_price_source === "sku" ? el("span", { class: "hint" }, " SKU") : null, packChip(p))),
     row("Buy Box", fmtR(p.amazon_buybox_price), "—"),
     row("Offers", fmtNum(p.amazon_total_offers), "—"),
     row("Rank", p.sales_rank ? `#${fmtNum(p.sales_rank)}` : "—", "—"),
@@ -1120,7 +1133,7 @@ function takealotCompareTable(p) {
     el("td", {}, tk), el("td", {}, ali));
   return el("table", { class: "compare" },
     el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", {}, "Takealot"), el("th", {}, "AliExpress"))),
-    row("Price", fmtR(p.takealot_price), fmtR(p.sku_price ?? p.ali_price_used)),
+    row("Price", fmtR(p.takealot_price), el("span", {}, fmtR(aliUnitCost(p)), packChip(p))),
     row("Reviews", p.takealot_reviews != null
       ? `${fmtNum(p.takealot_reviews)}${p.takealot_rating != null ? ` · ${p.takealot_rating}★` : ""}`
       : "—", "—"),
@@ -1210,7 +1223,7 @@ function trendSection(p) {
    payload's single-unit shipment quote; multi-unit freight re-quotes
    live at verification, so it's labelled, not multiplied. */
 function orderSpendBox(p, qty, freightOverride) {
-  const unit = p.sku_price ?? p.ali_price_used;
+  const unit = aliUnitCost(p);
   if (unit == null) return null;
   const goods = unit * qty;
   const freight = freightOverride != null ? Number(freightOverride)
@@ -1270,7 +1283,7 @@ function openOrderModal(p, opts = {}) {
       el("button", { class: "b wide", style: "margin-top:10px", onclick: () => modalEl().close() }, "Close"));
     return;
   }
-  const unitCost = p.sku_price ?? p.ali_price_used;
+  const unitCost = aliUnitCost(p);
 
   /* Shipping picker (Phase B of the deadline-driven freight plan): the
      stored single-unit quotes name the choices; the pipeline re-quotes at

@@ -10,6 +10,7 @@ const STAGE_OPTIONS = [
   ["embed-submit", "embed-submit — submit embedding backlog (Gemini batch)"],
   ["vision-submit", "vision-submit — submit vision backlog (Gemini batch)"],
   ["vision-reverify", "vision-reverify — re-judge old rejections under the current gate (paid)"],
+  ["pack-check", "pack-check — re-read pack counts on existing winners (paid)"],
   ["duties-submit", "duties-submit — submit duties backlog (Gemini batch)"],
   ["collect", "collect — ingest finished Gemini batches now"],
   ["matching", "matching — vector matching"],
