@@ -102,6 +102,8 @@ function renderMachineDesk(root) {
   root.append(runControlPanel(a));
   const ap = autonomyPanel(a);
   if (ap) root.append(ap);
+  const dp = discoveryPanel(a);
+  if (dp) root.append(dp);
 
   root.append(el("div", {
     style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start",
@@ -289,6 +291,62 @@ function autonomyPanel(a) {
               `paused — ${cfg.paused_reason}`) : null),
       seg));
   }
+  p.append(status);
+  return p;
+}
+
+/* ---------- the discovery-mode switch (2026-09-23) ---------- */
+
+function discoveryPanel(a) {
+  const d = a.discovery;
+  if (!d || d.error) return null; // payload predates the switch
+  const status = statusLine();
+  const p = panelEl("Discovery", {
+    right: el("span", {
+      title: "which source the 24h machine's Takealot intake pulls from " +
+             "each cycle. Keywords: search what shoppers type (the keyword " +
+             "ledger). Sellers: browse the in-stock storefronts of PROVEN " +
+             "sellers — a rating history is sales evidence and DC stock is " +
+             "capital committed, so every find is a product a rival paid " +
+             "to stock, not a drop-shipper's listing.",
+    }, "keywords · sellers — the Takealot intake source"),
+  });
+  // A press still riding the bus wins the display (switch contract).
+  const press = (S.commands || {}).discovery || null;
+  const pending = press && press.requested_at
+    && press.requested_at !== d.applied_stamp ? press : null;
+  const mode = pending ? pending.mode : (d.mode || "keywords");
+  const seg = el("span", { style: "display:inline-flex;gap:4px" });
+  for (const m of ["keywords", "sellers"]) {
+    seg.append(el("button", {
+      class: `b xs ${m === mode ? "pri" : ""}`,
+      ...(pending || m === mode ? { disabled: "" } : {}),
+      onclick: () => {
+        busAct(`discovery mode → ${m}`, (doc) => {
+          doc.discovery = { mode: m, requested_at: new Date().toISOString() };
+        }, status);
+        seg.replaceWith(el("span", { class: "st warn" }, "applying"));
+      },
+    }, m));
+  }
+  const s = d.sellers || {};
+  p.append(el("div", { class: "switchrow" },
+    el("span", {
+      title: "the seller ledger fills passively from every product page " +
+             "the pipeline reads (the winners sweep names each page's " +
+             "buybox winner with its rating history); browseworthy = " +
+             "enough recent ratings, decent average, real DC stock, not " +
+             "us, not retail-scale",
+    },
+      el("span", { style: "font-weight:600" }, "Takealot intake"),
+      el("span", { class: "hint", style: "margin-left:8px" },
+        s.total != null
+          ? `${fmtNum(s.browseworthy ?? 0)} browseworthy of ` +
+            `${fmtNum(s.total)} sellers seen · ${fmtNum(s.rated ?? 0)} rated`
+          : "seller ledger fills from the daily page reads"),
+      pending ? el("span", { class: "st warn", style: "margin-left:8px" },
+        "applying") : null),
+    seg));
   p.append(status);
   return p;
 }

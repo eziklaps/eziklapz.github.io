@@ -1,7 +1,9 @@
 /* Buy desk — sourcing & ordering across both demand channels: a master
    table (Amazon / Takealot / Reorder / Ordered tabs) with a sticky detail
-   panel. Filters: buy-ready (the default view) and New products (not yet
-   on Takealot under our account — services/winners.listed_doc_ids).
+   panel. Filters: buy-ready (the default view), New products (not yet
+   on Takealot under our account — services/winners.listed_doc_ids) and
+   Competition in stock (a rival ships from a DC today —
+   services/winners.competition_stock; drop-ship-only rows hide).
    Ordering is REAL: the modal commits an order intent to the command bus
    and the pipeline re-verifies price/freight/margin before placing.
    Row cells here are shared with the Today desk's "best of" table. */
@@ -35,8 +37,20 @@ function renderBuyDesk(root) {
   // can go to the DC the day it lands; an old stockless probe sits at
   // limit 0. Same pre-restart guard as buy_ready.
   const newable = products.some((p) => "takealot_listed" in p);
-  const shown = (list) => (newable && S.buyNewOnly)
-    ? readyOnly(list).filter((p) => !p.takealot_listed) : readyOnly(list);
+  // "Competition in stock" = a rival offer ships from a Takealot DC today
+  // (winners.competition_stock: winners-sweep offer stack first, intake-day
+  // read as fallback). The 14-16-working-day drop-shippers are listings,
+  // not demand evidence — this chip keeps only rows somebody paid to
+  // compete on. Same pre-restart guard as the other chips.
+  const stockable = products.some((p) => "competition_in_stock" in p);
+  const shown = (list) => {
+    let out = readyOnly(list);
+    if (newable && S.buyNewOnly) out = out.filter((p) => !p.takealot_listed);
+    if (stockable && S.buyStockedOnly) {
+      out = out.filter((p) => p.competition_in_stock === true);
+    }
+    return out;
+  };
   const amazon = products.filter((p) => (p.channel || "amazon") === "amazon");
   const takealot = products.filter((p) => p.channel === "takealot");
   const ordered = products.filter((p) => p.order);
@@ -105,12 +119,21 @@ function renderBuyDesk(root) {
            "the day it lands; an old stockless probe sits at limit 0.",
     onclick: () => { S.buyNewOnly = !S.buyNewOnly; renderDesk(); },
   }, "New products") : null;
+  const stockedChip = stockable ? el("button", {
+    class: `tab${S.buyStockedOnly ? " active" : ""}`,
+    title: "only products where a competing offer ships from a Takealot " +
+           "DC today — someone put real stock behind the demand. Rows " +
+           "whose only competition is 14-16-working-day drop-shippers " +
+           "(leadtime offers, no ZA stock) hide: a drop-ship listing is " +
+           "not demand evidence.",
+    onclick: () => { S.buyStockedOnly = !S.buyStockedOnly; renderDesk(); },
+  }, "Competition in stock") : null;
   root.append(el("div", { class: "tabs" },
     tab("amazon", `Amazon (${shown(amazon).length})`),
     tab("takealot", `Takealot (${shown(takealot).length})`),
     reorders ? tab("reorder", `Reorder (${reorderDue.length})`) : null,
     tab("ordered", `Ordered (${ordered.length + phantoms.length})`),
-    filterChip, newChip,
+    filterChip, newChip, stockedChip,
     el("div", { style: "flex:1" }),
     search, sort));
 
@@ -838,6 +861,23 @@ function buyDetail(p) {
              "Takealot's new-offer replenishment allowance (usually 5 units " +
              "a DC for its first 30 days), so stock can go to the DC on arrival",
     }, "new to Takealot"));
+  }
+  if (p.competition_in_stock === true) {
+    chips.append(el("span", {
+      class: "tag ok",
+      title: "a competing offer ships from a Takealot DC today — demand " +
+             "someone paid to hold stock against" +
+             (p.competitors_in_stock != null
+               ? ` (${p.competitors_in_stock} rival offer(s) in stock)` : ""),
+    }, "competition in stock" +
+       (p.competitors_in_stock != null ? ` ·${p.competitors_in_stock}` : "")));
+  } else if (p.competition_in_stock === false) {
+    chips.append(el("span", {
+      class: "tag",
+      title: "every competing offer is a 14-16-working-day drop-shipper " +
+             "(or out of stock) — nobody holds ZA stock of this, so the " +
+             "listing count is not demand evidence",
+    }, "drop-ship rivals only"));
   }
   card.append(chips);
 

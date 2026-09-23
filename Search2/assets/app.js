@@ -31,7 +31,7 @@ const S = {
   passphrase: null,
   // per-desk UI state survives re-renders
   buyTab: "amazon", buySearch: "", buySort: "score", buySel: null,
-  buyShowAll: false, buyNewOnly: false,
+  buyShowAll: false, buyNewOnly: false, buyStockedOnly: false,
   sellTab: "amazon",
   sellTodosOpen: false,
   stockOpen: false, stockMovesAll: false,
