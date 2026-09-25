@@ -1220,14 +1220,16 @@ function trendSection(p) {
    vs what SARS collects at import — the same landed-cost model
    services/margin.py prices margins with (duty on goods; import VAT =
    (goods × 1.10 uplift + duty) × 15%). The freight figure is the
-   payload's single-unit shipment quote; multi-unit freight re-quotes
-   live at verification, so it's labelled, not multiplied. */
+   payload's per-unit shipment quote (quoted at the pack quantity, so one
+   SOLD unit); AliExpress charges shipping per unit, so it scales with
+   the quantity. Verification re-quotes live at the real quantity. */
 function orderSpendBox(p, qty, freightOverride) {
   const unit = aliUnitCost(p);
   if (unit == null) return null;
   const goods = unit * qty;
-  const freight = freightOverride != null ? Number(freightOverride)
+  const perUnit = freightOverride != null ? Number(freightOverride)
     : p.freight != null ? Number(p.freight) : null;
+  const freight = perUnit != null ? perUnit * qty : null;
   const pct = p.import_percentage != null ? Number(p.import_percentage) : null;
   const duty = pct != null ? goods * (pct / 100) : null;
   const vat = duty != null ? (goods * 1.10 + duty) * 0.15 : null;
@@ -1239,7 +1241,7 @@ function orderSpendBox(p, qty, freightOverride) {
      el("span", { class: "v" }, v));
   return el("div", { class: "note", style: "margin-top:12px" },
     row(`Goods — ${qty} × ${fmtR(unit)}`, fmtR(goods)),
-    row("Freight (one shipment — single-unit quote)",
+    row(`Freight — ${qty} × ${perUnit != null ? fmtR(perUnit) : "?"}`,
         freight != null ? fmtR(freight) : "—"),
     row("You pay AliExpress", `≈ ${fmtR(payNow)}`, true),
     row(`SARS duty at import (${pct != null ? pct + "%" : "?"}` +
@@ -1250,7 +1252,7 @@ function orderSpendBox(p, qty, freightOverride) {
     row("All-in landed", `≈ ${fmtR(landed)}`, true),
     el("div", { class: "hint", style: "margin-top:6px" },
       "estimates from the last sweep — price, freight and margin re-verify " +
-      "live before anything places; multi-unit freight re-quotes then"));
+      "live at the real quantity before anything places"));
 }
 
 /* Commit-point gate banner: RED means the intent will queue and verify
@@ -1286,7 +1288,7 @@ function openOrderModal(p, opts = {}) {
   const unitCost = aliUnitCost(p);
 
   /* Shipping picker (Phase B of the deadline-driven freight plan): the
-     stored single-unit quotes name the choices; the pipeline re-quotes at
+     stored per-unit quotes name the choices; the pipeline re-quotes at
      the real quantity and matches the chosen code (falling back to
      cheapest with the swap on record if the service vanished). Keeping
      the cheapest selected sends NO code — the pipeline keeps picking the
@@ -1314,7 +1316,7 @@ function openOrderModal(p, opts = {}) {
     el("div", { style: "display:flex;align-items:center;gap:10px;margin-top:10px" },
       el("span", { class: "meta" }, "Shipping"), freightSel),
     el("div", { class: "hint", style: "margin-top:4px" },
-      "single-unit stored quotes — re-quoted at the real quantity before " +
+      "per-unit stored quotes — re-quoted at the real quantity before " +
       "placing; a pick that can't clear the margin floor is rejected, " +
       "never silently placed")) : null;
 
