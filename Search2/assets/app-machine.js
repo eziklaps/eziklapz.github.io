@@ -305,20 +305,22 @@ function discoveryPanel(a) {
   const p = panelEl("Discovery", {
     right: el("span", {
       title: "which source the 24h machine's Takealot intake pulls from " +
-             "each cycle. Keywords: search what shoppers type (the keyword " +
-             "ledger). Sellers: browse the in-stock storefronts of PROVEN " +
+             "each cycle. Bestsellers: Takealot's own bestseller + trending " +
+             "lists per department and category — what actually sells; " +
+             "matched ones move their seller to the head of the seller " +
+             "queue. Sellers: browse the in-stock storefronts of PROVEN " +
              "sellers — a rating history is sales evidence and DC stock is " +
-             "capital committed, so every find is a product a rival paid " +
-             "to stock, not a drop-shipper's listing.",
-    }, "keywords · sellers — the Takealot intake source"),
+             "capital committed. Keywords: search what shoppers type (the " +
+             "keyword ledger). Rotate: each source in turn, pass by pass.",
+    }, "the Takealot intake source"),
   });
   // A press still riding the bus wins the display (switch contract).
   const press = (S.commands || {}).discovery || null;
   const pending = press && press.requested_at
     && press.requested_at !== d.applied_stamp ? press : null;
-  const mode = pending ? pending.mode : (d.mode || "keywords");
-  const seg = el("span", { style: "display:inline-flex;gap:4px" });
-  for (const m of ["keywords", "sellers"]) {
+  const mode = pending ? pending.mode : (d.mode || "rotate");
+  const seg = el("span", { style: "display:inline-flex;gap:4px;flex-wrap:wrap" });
+  for (const m of d.modes || ["rotate", "bestsellers", "sellers", "keywords"]) {
     seg.append(el("button", {
       class: `b xs ${m === mode ? "pri" : ""}`,
       ...(pending || m === mode ? { disabled: "" } : {}),
@@ -344,7 +346,15 @@ function discoveryPanel(a) {
         s.total != null
           ? `${fmtNum(s.browseworthy ?? 0)} browseworthy of ` +
             `${fmtNum(s.total)} sellers seen · ${fmtNum(s.rated ?? 0)} rated`
-          : "seller ledger fills from the daily page reads"),
+          : "seller ledger fills from the daily page reads",
+        d.rotation && mode === "rotate"
+          ? ` · next pass: ${d.rotation.next}` : "",
+        d.bestsellers
+          ? ` · ${fmtNum(d.bestsellers.scored ?? 0)}/` +
+            `${fmtNum(d.bestsellers.categories ?? 0)} categories scored · ` +
+            `${fmtNum(d.bestsellers.lists_today ?? 0)} lists today · ` +
+            `${fmtNum(d.bestsellers.chained_sellers ?? 0)} demand-backed sellers`
+          : ""),
       pending ? el("span", { class: "st warn", style: "margin-left:8px" },
         "applying") : null),
     seg));
