@@ -850,6 +850,13 @@ function buyDetail(p) {
     chips.append(el("span", { class: "tag" }, FLAG_LABELS[flag] || flag));
   }
   if (p.channel === "takealot") chips.append(el("span", { class: "tag" }, "Takealot find"));
+  if (p.generic === true) {
+    chips.append(el("span", {
+      class: "tag",
+      title: "no brand on Takealot, or a seller label on a Takealot-issued " +
+             "barcode (MPTAL…) — the generic-import kind of listing",
+    }, "generic"));
+  }
   if (p.score_category === "sole_seller_candidate") {
     chips.append(el("span", { class: "tag" }, "sole-seller candidate"));
   }
