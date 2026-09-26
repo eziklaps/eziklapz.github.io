@@ -34,8 +34,8 @@
        redirect_uri), which forwards ?code= here. Hand-off: publish
        {code, at} as doc.auth_alibaba on the command bus via
        mutateCommands (common.js), with the same token re-derivation as
-       the AliExpress callback; serve's consumer exchanges it
-       (services/alibaba_auth.consume_bus_code). Fallback: search3's
+       the AliExpress callback; the API's watcher (or serve's consumer)
+       exchanges it (services/alibaba_auth.consume_bus_code). Fallback: search3's
        paste sheet, which sends the same blob through /v3/actions. */
     window.addEventListener("DOMContentLoaded", () => {
       const status = document.getElementById("status");
@@ -91,8 +91,8 @@
 
       deliverViaBus().then((outcome) => {
         if (outcome === "delivered") {
-          status.textContent = "✅ Code delivered — serve exchanges it " +
-            "automatically within seconds. You can close this tab; the " +
+          status.textContent = "✅ Code delivered — the pipeline exchanges it " +
+            "within about 20 seconds. You can close this tab; the " +
             "Alibaba warning clears on its next refresh.";
         } else {
           status.textContent = "⚠ Couldn't deliver automatically: " +
