@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Search2 — Alibaba callback</title>
+  <link rel="stylesheet" href="../assets/style.css?v=4942030e">
+  <script src="../assets/common.js?v=c65b4275" defer></script>
+</head>
+<body>
+  <div class="wrap" style="max-width:560px">
+    <header class="page">
+      <h1>Alibaba authorization</h1>
+    </header>
+    <section class="panel">
+      <div id="status" class="banner show">Reading the callback…</div>
+      <div id="code-box" hidden>
+        <p class="sub">Authorization code:</p>
+        <pre id="code" class="scroll-x" style="padding:10px 12px;border:1px solid var(--hairline);border-radius:8px;background:var(--page);user-select:all"></pre>
+        <button id="copy" class="btn">Copy code</button>
+        <p class="sub" style="margin-top:10px">
+          Normally the pipeline picks the code up by itself. If this page
+          says it couldn't, copy this page's whole address and paste it into
+          search3: Machine → Credentials → Alibaba → Paste code. The code is
+          single-use and expires in minutes.
+        </p>
+      </div>
+    </section>
+    <footer class="page"><a href="../app/">open the console</a></footer>
+  </div>
+  <script>
+    /* Alibaba's consent redirect lands on the site root (the registered
+       redirect_uri), which forwards ?code= here. Hand-off: publish
+       {code, at} as doc.auth_alibaba on the command bus via
+       mutateCommands (common.js), with the same token re-derivation as
+       the AliExpress callback; serve's consumer exchanges it
+       (services/alibaba_auth.consume_bus_code). Fallback: search3's
+       paste sheet, which sends the same blob through /v3/actions. */
+    window.addEventListener("DOMContentLoaded", () => {
+      const status = document.getElementById("status");
+      const code = new URLSearchParams(location.search).get("code");
+      if (!code) {
+        status.textContent = "⚠ No ?code= in this URL. Restart the sign-in " +
+          "from the Re-authenticate button and approve access.";
+        return;
+      }
+      document.getElementById("code-box").hidden = false;
+      document.getElementById("code").textContent = code;
+      document.getElementById("copy").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(code);
+          document.getElementById("copy").textContent = "Copied ✓";
+        } catch (e) { /* clipboard blocked — the code is selectable above */ }
+      });
+
+      async function deliverViaBus() {
+        if (typeof mutateCommands !== "function") return "no-token";
+        status.textContent = "Delivering the code over the command bus…";
+        if (!localStorage.getItem(PAT_KEY)) {
+          await adoptBusToken(localStorage.getItem(PASS_KEY));
+        }
+        if (!localStorage.getItem(PAT_KEY)) return "no-token";
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            await mutateCommands((doc) => {
+              doc.auth_alibaba = { code, at: new Date().toISOString() };
+            }, "Dashboard: Alibaba auth code");
+            return "delivered";
+          } catch (e) {
+            if (!/401|403/.test(e.message)) return "failed";
+            // Stale bearer (e.g. pre-rotation): drop it and re-derive from
+            // the remembered passphrase. adoptBusToken refuses to re-store
+            // a value the Worker already rejected, so this can't loop.
+            localStorage.removeItem(PAT_KEY);
+            const ok = await adoptBusToken(localStorage.getItem(PASS_KEY));
+            if (!ok) return "rejected";
+          }
+        }
+        return "rejected";
+      }
+
+      const BUS_EXCUSES = {
+        "no-token": "this browser holds no dashboard token or remembered " +
+          "passphrase — unlock the app here once, then restart the sign-in",
+        "rejected": "this browser's dashboard token was rejected and a " +
+          "fresh one couldn't be derived — lock and unlock the app here, " +
+          "then restart the sign-in",
+        "failed": "the command bus write failed",
+      };
+
+      deliverViaBus().then((outcome) => {
+        if (outcome === "delivered") {
+          status.textContent = "✅ Code delivered — serve exchanges it " +
+            "automatically within seconds. You can close this tab; the " +
+            "Alibaba warning clears on its next refresh.";
+        } else {
+          status.textContent = "⚠ Couldn't deliver automatically: " +
+            (BUS_EXCUSES[outcome] || outcome) + ". Paste this page's " +
+            "address into search3 instead (see below).";
+        }
+      });
+    });
+  </script>
+</body>
+</html>

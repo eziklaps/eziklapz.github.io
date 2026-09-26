@@ -283,6 +283,14 @@
     footer.site .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
     footer.site a { color: var(--ink-2); }
   </style>
+  <script>
+    /* Alibaba's OAuth consent redirects to this site root (the registered
+       redirect_uri) with ?code=… — hand it to the Search2 callback page,
+       which publishes it on the command bus for the pipeline to exchange. */
+    if (new URLSearchParams(location.search).get("code")) {
+      location.replace("/Search2/alibaba-callback/" + location.search);
+    }
+  </script>
 </head>
 <body>
 
