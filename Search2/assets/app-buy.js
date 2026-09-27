@@ -882,6 +882,18 @@ function buyDetail(p) {
              "a DC for its first 30 days), so stock can go to the DC on arrival",
     }, "new to Takealot"));
   }
+  if (p.rival_units != null) {
+    const sold = p.rival_sold_per_day;
+    chips.append(el("span", {
+      class: "tag",
+      title: "units the rivals hold in Takealot's DCs at the latest daily " +
+             "cart read (100+ = the read cap)" +
+             (sold != null
+               ? ` — selling ${sold}/day over ${p.rival_measured_days} measured day(s)`
+               : " — a sell rate needs two reads a day apart"),
+    }, `rival stock: ${p.rival_units}${p.rival_units_floor ? "+" : ""} units` +
+       (sold != null ? ` · ${sold}/day` : "")));
+  }
   if (p.competition_in_stock === true) {
     chips.append(el("span", {
       class: "tag ok",
