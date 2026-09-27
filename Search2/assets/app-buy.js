@@ -894,6 +894,14 @@ function buyDetail(p) {
     }, `rival stock: ${p.rival_units}${p.rival_units_floor ? "+" : ""} units` +
        (sold != null ? ` · ${sold}/day` : "")));
   }
+  if (p.profit_month_shadow != null) {
+    chips.append(el("span", {
+      class: "tag",
+      title: "shadow estimate, not ranked on: the rivals' measured sales " +
+             `(${p.rival_sold_per_day}/day) × 30 × our assumed 30% share × ` +
+             `net R${p.net_margin} a unit`,
+    }, `≈R${p.profit_month_shadow.toLocaleString("en-ZA")}/mo profit`));
+  }
   if (p.competition_in_stock === true) {
     chips.append(el("span", {
       class: "tag ok",
