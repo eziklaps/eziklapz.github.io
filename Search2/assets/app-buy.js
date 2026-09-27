@@ -832,6 +832,7 @@ function buyDetail(p) {
     restricted: "Amazon approval needed",
     compliance: "ZA compliance (ICASA/NRCS)",
     gtin_exemption: "GTIN exemption needed",
+    branded: "branded page (not ours to sell)",
   };
   for (const b of p.listing_blocks || []) {
     chips.append(el("span", {
