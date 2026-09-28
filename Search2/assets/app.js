@@ -495,6 +495,9 @@ function pendingBusEntries() {
     if (m.reject) {
       push("match", `Wrong match: ${m.asin} ↔ Ali ${m.ali_id}`,
         m.requested_at, m.asin);
+    } else if (m.pin) {
+      push("match", `Right match: ${m.asin} → ${m.pin === "alibaba" ? "Alibaba" : "AliExpress"} link`,
+        m.requested_at, m.asin);
     }
   }
   for (const s of c.shipments || []) {

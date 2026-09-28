@@ -798,15 +798,54 @@ function matchSection(p) {
       title: "pushes this Ali item onto the never-again list and sends the " +
              "product back through matching",
       onclick: () => {
-        if (!confirm(`Reject this match? ${p.asin} drops off the winners ` +
-            "list and re-matches on the next run — the rejected AliExpress " +
-            "item is never re-selected.")) return;
-        busAct(`wrong match ${p.asin}`, (doc) => prunePush(doc, "matches", {
-          asin: p.asin, ali_id: String(p.ali_id), reject: true,
-          requested_at: new Date().toISOString(),
-        }), status, "Sent — re-matches without this supplier on the next run.");
+        // Empty = the plain rejection; a pasted AliExpress link replaces
+        // the match with that item, confirmed by hand (services/manual_match)
+        const url = prompt(`Reject this match? AliExpress item ${p.ali_id} ` +
+            `is never re-selected for ${p.asin}.\n\nFound the right item? ` +
+            "Paste its AliExpress link — or leave empty to let the machine " +
+            "re-match.", "");
+        if (url === null) return;
+        const link = url.trim();
+        if (link && !/aliexpress\.|^\d{9,20}$/i.test(link)) {
+          alert("That isn't an AliExpress item link.");
+          return;
+        }
+        busAct(`wrong match ${p.asin}`, (doc) => prunePush(doc, "matches",
+          link
+            ? { asin: p.asin, pin: "aliexpress", url: link,
+                requested_at: new Date().toISOString() }
+            : { asin: p.asin, ali_id: String(p.ali_id), reject: true,
+                requested_at: new Date().toISOString() }),
+          status, link
+            ? "Sent — re-costs on the item you picked within a pass."
+            : "Sent — re-matches without this supplier on the next run.");
       },
     }, "✗ Wrong match"),
+    " ",
+    el("button", {
+      class: "b sm",
+      title: "a hand-picked Alibaba.com listing becomes this product's " +
+             "Alibaba quote — the machine re-quotes it instead of searching",
+      onclick: () => {
+        const url = prompt(`Alibaba.com link for ${p.asin}:`, "");
+        if (url === null || !url.trim()) return;
+        const link = url.trim();
+        if (!/alibaba\.com|^\d{9,20}$/i.test(link)) {
+          alert("That isn't an Alibaba.com product link.");
+          return;
+        }
+        const raw = (prompt("Unit price in R (optional — shown when the " +
+            "API can't quote the listing):", "") || "").replace(/[R\s]/g, "")
+            .replace(",", ".");
+        const price = raw ? Number(raw) : null;
+        if (raw && !(price > 0)) { alert("Unit price must be a number."); return; }
+        busAct(`alibaba link ${p.asin}`, (doc) => prunePush(doc, "matches", {
+          asin: p.asin, pin: "alibaba", url: link,
+          ...(price ? { price_zar: price } : {}),
+          requested_at: new Date().toISOString(),
+        }), status, "Sent — quoted (or kept as a link) within a pass.");
+      },
+    }, "+ Alibaba link"),
     status));
   return sect;
 }
