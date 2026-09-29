@@ -929,10 +929,10 @@ function buyDetail(p) {
       title: "units the rivals hold in Takealot's DCs at the latest daily " +
              "cart read (100+ = the read cap)" +
              (sold != null
-               ? ` — selling ${sold}/day over ${p.rival_measured_days} measured day(s)`
+               ? ` — selling ${fmtNum(Math.round(sold * 30))}/month (${sold}/day) over ${p.rival_measured_days} measured day(s)`
                : " — a sell rate needs two reads a day apart"),
     }, `rival stock: ${p.rival_units}${p.rival_units_floor ? "+" : ""} units` +
-       (sold != null ? ` · ${sold}/day` : "")));
+       (sold != null ? ` · ${fmtNum(Math.round(sold * 30))} sold/mo` : "")));
   }
   if (p.profit_month_shadow != null) {
     chips.append(el("span", {
