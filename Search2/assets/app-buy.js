@@ -47,7 +47,9 @@ function renderBuyDesk(root) {
     let out = readyOnly(list);
     if (newable && S.buyNewOnly) out = out.filter((p) => !p.takealot_listed);
     if (stockable && S.buyStockedOnly) {
-      out = out.filter((p) => p.competition_in_stock === true);
+      // Rivals that held DC stock and sold through stay in: proven demand,
+      // nobody left in stock (Andrew 2026-09-29).
+      out = out.filter((p) => p.competition_in_stock === true || p.rival_sold_out);
     }
     return out;
   };
@@ -942,7 +944,15 @@ function buyDetail(p) {
              `net R${p.net_margin} a unit`,
     }, `≈R${p.profit_month_shadow.toLocaleString("en-ZA")}/mo profit`));
   }
-  if (p.competition_in_stock === true) {
+  if (p.rival_sold_out) {
+    chips.append(el("span", {
+      class: "tag ok",
+      title: "every rival that held DC stock has sold out" +
+             (p.rival_sold_out_since ? ` (last one on ${p.rival_sold_out_since})` : "") +
+             " — the demand is proven and nobody is holding stock now " +
+             "(a rival pulling its DC stock reads the same; check the stock chart)",
+    }, "rivals sold out"));
+  } else if (p.competition_in_stock === true) {
     chips.append(el("span", {
       class: "tag ok",
       title: "a competing offer ships from a Takealot DC today — demand " +
