@@ -613,6 +613,9 @@ function switchStates() {
   const c = S.commands || {};
   const remote = (key) => (c[key] || {}).enabled !== false;
   const envOrdering = S.admin ? !!S.admin.ordering_enabled_env : null;
+  // Older payloads carry no gemini half — read that as on (the default).
+  const envGemini = S.admin
+    ? S.admin.gemini_enabled_env !== false : null;
   const envListing = S.seller ? !!(S.seller.amazon || {}).enabled : null;
   const envTakealot = S.seller ? !!(S.seller.takealot || {}).enabled : null;
   const known = !!S.commands;
@@ -636,6 +639,14 @@ function switchStates() {
       title: `Amazon listings: ${half(envListing, remote("listing"))}`
         + ` · Takealot offers: ${half(envTakealot, remote("takealot"))}`
         + " — one switch, both channels: every half must be on to post",
+    },
+    {
+      keys: ["gemini"], label: "GEMINI",
+      env: envGemini, remote: remote("gemini"), known,
+      armed: envGemini === true && remote("gemini"),
+      title: `Gemini: ${half(envGemini, remote("gemini"))}`
+        + " — off = Takealot, AliExpress and Alibaba keep running while "
+        + "embeddings, vision, duties and the SKU pick wait in their queues",
     },
   ];
 }
@@ -969,7 +980,9 @@ function renderTopbar() {
   const chips = switchStates().map((s) => el("span", {
     class: `swchip ${s.armed ? "armed" : "safe"}`, title: s.title,
     onclick: () => setDesk("today"),
-  }, `${s.label} ${s.armed ? "ARMED" : "SAFE"}`));
+  }, s.label === "GEMINI"
+    ? `GEMINI ${s.armed ? "ON" : "OFF"}`
+    : `${s.label} ${s.armed ? "ARMED" : "SAFE"}`));
 
   bar.replaceChildren(
     el("div", { class: "logo" },

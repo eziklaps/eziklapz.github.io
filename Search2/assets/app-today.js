@@ -319,8 +319,9 @@ function killSwitchPanel() {
   for (const s of switchStates()) {
     // SELL is one row for two bus keys (Amazon listings + Takealot offers)
     // — killing or arming it flips both in a single commit.
-    const label = s.label === "ORDERS"
-      ? "Ordering" : "Selling (Amazon + Takealot)";
+    const label = s.label === "ORDERS" ? "Ordering"
+      : s.label === "GEMINI" ? "Gemini (AI spend)"
+      : "Selling (Amazon + Takealot)";
     const setAll = (doc, enabled) => {
       for (const key of s.keys) doc[key] = { ...(doc[key] || {}), enabled };
     };
@@ -329,7 +330,8 @@ function killSwitchPanel() {
       el("span", { style: "display:flex;gap:8px;align-items:center" },
         el("span", {
           class: `st ${s.armed ? "warn" : "mute"}`, title: s.title,
-        }, s.armed ? "ARMED" : "SAFE"),
+        }, s.label === "GEMINI" ? (s.armed ? "ON" : "OFF")
+           : s.armed ? "ARMED" : "SAFE"),
         s.remote
           ? el("button", {
               class: "b xs danger",
